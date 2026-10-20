@@ -305,6 +305,48 @@ describe('useConvert().run', () => {
     expect(task.baseContent).toBe('old content');
   });
 
+  it('marks the run errored when the done frame carries a non-zero exit code', async () => {
+    const taskId = useStore.getState().newTask({ name: 'done-nonzero' });
+    stubStreamFetch([
+      sseFrame('start', { bin: '/usr/bin/agent', promptBytes: 12 }),
+      sseFrame('delta', { text: '<p>partial' }),
+      sseFrame('done', { code: 1 }),
+    ]);
+    await renderHarness();
+
+    await act(async () => {
+      await api!.run(runReq(taskId));
+    });
+
+    const task = taskOf(taskId);
+    expect(task.status).toBe('error');
+    expect(
+      task.log.some((l) => l.kind === 'error' && l.text.includes('exited with code 1')),
+    ).toBe(true);
+    expect(task.baseHtml).toBeUndefined();
+  });
+
+  it('marks the run errored when an error frame without a message is followed by done', async () => {
+    // the error-frame name alone must fail the run: without the message the
+    // exit-code path would read the trailing done as a clean exit
+    const taskId = useStore.getState().newTask({ name: 'messageless-error' });
+    stubStreamFetch([
+      sseFrame('start', { bin: '/usr/bin/agent', promptBytes: 12 }),
+      sseFrame('delta', { text: '<p>partial' }),
+      sseFrame('error', {}),
+      sseFrame('done', { code: 0 }),
+    ]);
+    await renderHarness();
+
+    await act(async () => {
+      await api!.run(runReq(taskId));
+    });
+
+    const task = taskOf(taskId);
+    expect(task.status).toBe('error');
+    expect(task.baseHtml).toBeUndefined();
+  });
+
   it('lands buffered events in order before the 已取消 log when cancelled mid-stream', async () => {
     const taskId = useStore.getState().newTask({ name: 'cancel' });
     const probe = stubStreamFetch(
@@ -346,7 +388,13 @@ describe('useConvert().run', () => {
     const burst = Array.from({ length: 200 }, (_, i) =>
       sseFrame('meta', { key: 'model', value: `m${i}` }),
     ).join('');
-    stubStreamFetch([burst, sseFrame('done', { code: 0 })]);
+    // one delta so the finished document is non-empty — a done frame over an
+    // empty document counts as a failed run (conversionOutcome)
+    stubStreamFetch([
+      burst,
+      sseFrame('delta', { text: '<p>burst' }),
+      sseFrame('done', { code: 0 }),
+    ]);
     await renderHarness();
 
     await act(async () => {

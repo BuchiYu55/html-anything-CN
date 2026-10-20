@@ -14,6 +14,37 @@ type ConvertReq = {
   model?: string;
 };
 
+type ConversionOutcome =
+  | { status: 'done' }
+  | { status: 'error'; message: string };
+
+export function conversionOutcome(
+  exitCode: number | null | undefined,
+  html: string,
+  agentError?: string,
+): ConversionOutcome {
+  if (agentError) return { status: 'error', message: agentError };
+  if (exitCode === null || exitCode === undefined) {
+    return {
+      status: 'error',
+      message: 'Agent process ended without an exit code.',
+    };
+  }
+  if (exitCode !== 0) {
+    return {
+      status: 'error',
+      message: `Agent process exited with code ${exitCode}.`,
+    };
+  }
+  if (!html.trim()) {
+    return {
+      status: 'error',
+      message: 'Agent exited successfully but returned no HTML.',
+    };
+  }
+  return { status: 'done' };
+}
+
 /** prefix logged when the run is sent in diff-edit mode (vs full regeneration) */
 const DIFF_LOG_PREFIX = "🔁 diff-edit 模式";
 
@@ -149,12 +180,23 @@ export function useConvert() {
       // which terminal event the stream carried, if any — done and error need
       // different finishing (below): a failed run must not read as success
       let terminalEvent: "done" | "error" | null = null;
+      // exit code from the done frame and the first error message feed
+      // conversionOutcome below — done with a non-zero exit or no HTML is a
+      // failed run, not a success
+      let terminalCode: number | null | undefined;
+      let agentError: string | undefined;
       const batch = createEventBatcher((event, data) => {
         if (event === "done" || event === "error") {
           // error wins once seen: openclaw's close handler emits error for an
           // empty response or a JSON parse failure and then an unconditional
           // done — the trailing done must not mask the failure
           if (event === "error" || terminalEvent === null) terminalEvent = event;
+          const d = data as Record<string, unknown>;
+          if (event === "done") {
+            terminalCode = typeof d.code === "number" ? d.code : null;
+          } else if (typeof d.message === "string") {
+            agentError ??= d.message;
+          }
         }
         handleEvent(taskId, event, data, startedAt);
       });
@@ -205,14 +247,7 @@ export function useConvert() {
           }
         }
         batch.flush();
-        if (terminalEvent === "done") {
-          const endedAt = Date.now();
-          useStore.getState().patchStatsFor(taskId, { endedAt, durationMs: endedAt - startedAt });
-          useStore.getState().setStatusFor(taskId, "done");
-          // record the just-finished (content, html) as the new diff-edit baseline
-          // so the user's next edit goes through diff mode instead of full regen
-          useStore.getState().commitBaseFor(taskId);
-        } else if (terminalEvent === "error") {
+        if (terminalEvent === "error") {
           // the server emits exactly one error event and closes (unknown agent,
           // missing binary, crashed child). Keep whatever streamed for
           // debugging and fail the run — a partial document must not become
@@ -221,6 +256,26 @@ export function useConvert() {
         } else if (ctl.signal.aborted) {
           // user cancelled mid-stream: cancel() already set the task idle and
           // the catch arm below wrote the log line — nothing left to finish
+        } else if (terminalEvent === "done") {
+          const endedAt = Date.now();
+          const finalStore = useStore.getState();
+          finalStore.patchStatsFor(taskId, {
+            endedAt,
+            durationMs: endedAt - startedAt,
+          });
+          const html = finalStore.tasks.find((t) => t.id === taskId)?.html ?? '';
+          const outcome = conversionOutcome(terminalCode, html, agentError);
+          finalStore.setStatusFor(taskId, outcome.status);
+          if (outcome.status === 'done') {
+            // record the just-finished (content, html) as the new diff-edit baseline
+            // so the user's next edit goes through diff mode instead of full regen
+            finalStore.commitBaseFor(taskId);
+          } else if (!agentError) {
+            finalStore.pushLogFor(taskId, {
+              kind: 'error',
+              text: outcome.message,
+            });
+          }
         } else {
           // stream ended without a done/error event (connection dropped):
           // surface the truncation and keep the previous diff-edit baseline
@@ -379,6 +434,8 @@ function formatMeta(key: string, value: unknown): string {
   if (key === "duration_ms") return `duration = ${value} ms`;
   if (key === "cost_usd" && typeof value === "number") return `cost ≈ $${value.toFixed(4)}`;
   if (key === "result") return `result = ${value}`;
+  if (key === 'phase' && value === 'generating') return 'Codex 已开始生成';
+  if (key === 'warning') return `warning: ${String(value)}`;
   if (key === "rate_limit" && value && typeof value === "object") {
     const r = value as { status?: string; rateLimitType?: string };
     return `rate-limit: ${r.status} (${r.rateLimitType})`;
