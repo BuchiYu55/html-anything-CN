@@ -1,26 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-<<<<<<< HEAD
-import { existsSync } from "node:fs";
-import { resolveOnPath, resolveOpenclawAgentId, AGENTS } from "./detect";
-import {
-  buildArgv,
-  envFor,
-  makeParser,
-  sanitizeAgentStderrLine,
-  UnsupportedAgentProtocolError,
-} from './argv';
-=======
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveOnPath, resolveOpenclawAgentId, resolveZcodeBin, resolveZcodeNodeBin, ZCODE_CJS_SENTINEL, AGENTS } from "./detect";
-import { buildArgv, envFor, makeParser, UnsupportedAgentProtocolError } from "./argv";
+import { buildArgv, envFor, makeParser, sanitizeAgentStderrLine, UnsupportedAgentProtocolError } from "./argv";
 import {
   prepareZcodeModelBinding,
   zcodeBindingEnv,
   zcodeProviderEnvPairSet,
 } from "./zcode-model-binding";
->>>>>>> pr-139
 
 export type InvokeOpts = {
   agent: string;
@@ -478,7 +467,6 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       const parse = makeParser(opts.agent);
 
       let stdoutBuf = "";
-<<<<<<< HEAD
       let stderrBuf = '';
       const flushStderr = () => {
         if (!stderrBuf) return;
@@ -488,10 +476,8 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         });
         stderrBuf = '';
       };
-=======
       // Rolling stderr tail feeding the non-zero-exit error message.
       let stderrTail = "";
->>>>>>> pr-139
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
         if (closed) return;
@@ -528,7 +514,8 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
 
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk: string) => {
-<<<<<<< HEAD
+        stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CAP);
+        safeEnqueue({ type: "stderr", text: chunk });
         if (opts.agent !== 'codex') {
           safeEnqueue({ type: "stderr", text: chunk });
           return;
@@ -543,10 +530,6 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
             text: `${sanitizeAgentStderrLine(opts.agent, line)}\n`,
           });
         }
-=======
-        stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CAP);
-        safeEnqueue({ type: "stderr", text: chunk });
->>>>>>> pr-139
       });
 
       child.on("error", (err) => {
@@ -557,11 +540,8 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       });
 
       child.on("close", (code) => {
-<<<<<<< HEAD
-        flushStderr();
-=======
         clearSilenceTimer();
->>>>>>> pr-139
+        flushStderr();
         if (opts.agent === "openclaw") {
           // OpenClaw's `agent --local --json` emits one pretty-printed JSON
           // document on stdout. The visible reply is at
@@ -649,11 +629,8 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         try {
           child?.kill("SIGTERM");
         } catch {}
-<<<<<<< HEAD
         flushStderr();
-=======
         cleanupArgvAttach();
->>>>>>> pr-139
         safeClose();
       };
       opts.signal?.addEventListener("abort", onAbort, { once: true });

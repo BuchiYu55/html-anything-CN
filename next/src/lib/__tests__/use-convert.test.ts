@@ -405,6 +405,8 @@ describe('useConvert().run', () => {
     expect(task.status).toBe('done');
     expect(task.log.filter((l) => l.kind === 'meta')).toHaveLength(200);
     expect(renderCount).toBeLessThanOrEqual(10);
+  });
+});
 
 // The zcode failure gate, extracted from use-convert.ts so the
 // consumer-layer contract (error event / non-zero exit → red error state,

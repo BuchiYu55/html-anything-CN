@@ -269,8 +269,6 @@ describe("parseLine bob", () => {
     ]);
   });
 });
-<<<<<<< HEAD
-=======
 
 describe("parseLine zcode (argv-attach stream-json)", () => {
   // Real NDJSON lines captured from the installed ZCode CLI running
@@ -570,4 +568,3 @@ describe("parseLine zcode (argv-attach stream-json)", () => {
     ]);
   });
 });
->>>>>>> pr-139
