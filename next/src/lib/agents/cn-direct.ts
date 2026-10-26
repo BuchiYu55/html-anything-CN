@@ -10,6 +10,9 @@
  * 在进程启动时全局拦截，或配置 undici 的 ProxyAgent。
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { InvokeEvent } from "./invoke";
 
 // ─── 供应商注册表 ─────────────────────────────────────────────────────
@@ -17,17 +20,76 @@ import type { InvokeEvent } from "./invoke";
 export type CnProvider = {
   id: string;           // AGENTS 数组中的 agent id: "glm" | "deepseek" | "qwen-direct" | "moonshot"
   label: string;
-  baseUrl: string;      // OpenAI 兼容 base URL（不含尾部 /v1）
+  endpoint: string;     // 完整 chat completions 端点 URL
   envKey: string;       // API key 对应的环境变量名
   defaultModel: string;
 };
 
 export const CN_PROVIDERS: CnProvider[] = [
-  { id: "glm",          label: "智谱 GLM",       baseUrl: "https://open.bigmodel.cn/api/paas/v4", envKey: "ZHIPU_API_KEY",     defaultModel: "glm-5.3-flash" },
-  { id: "deepseek",     label: "DeepSeek",        baseUrl: "https://api.deepseek.com",             envKey: "DEEPSEEK_API_KEY",  defaultModel: "deepseek-chat" },
-  { id: "qwen-direct",  label: "通义千问 (Direct)", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode", envKey: "DASHSCOPE_API_KEY", defaultModel: "qwen-plus" },
-  { id: "moonshot",     label: "Moonshot",        baseUrl: "https://api.moonshot.cn",              envKey: "MOONSHOT_API_KEY",   defaultModel: "moonshot-v1-8k" },
+  {
+    id: "glm",
+    label: "智谱 GLM",
+    endpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    envKey: "ZHIPU_API_KEY",
+    defaultModel: "glm-5.3-flash",
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    endpoint: "https://api.deepseek.com/chat/completions",
+    envKey: "DEEPSEEK_API_KEY",
+    defaultModel: "deepseek-chat",
+  },
+  {
+    id: "qwen-direct",
+    label: "通义千问 (Direct)",
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    envKey: "DASHSCOPE_API_KEY",
+    defaultModel: "qwen-plus",
+  },
+  {
+    id: "moonshot",
+    label: "Moonshot",
+    endpoint: "https://api.moonshot.cn/v1/chat/completions",
+    envKey: "MOONSHOT_API_KEY",
+    defaultModel: "moonshot-v1-8k",
+  },
 ];
+
+/**
+ * 解析供应商对应的 API Key。
+ * 优先级：
+ * 1. process.env[provider.envKey]（显式指定，如 ZHIPU_API_KEY）
+ * 2. process.env.OPENAI_API_KEY（OpenAI 兼容通用环境变量，用于 GLM 等）
+ * 3. ~/.qwen/.env 文件中定义的 key 或 OPENAI_API_KEY（复用已有配置）
+ */
+export function resolveCnApiKey(provider: CnProvider): string | null {
+  const envKey = provider.envKey;
+  if (process.env[envKey]?.trim()) return process.env[envKey]!.trim();
+  if (provider.id === "glm" && process.env.OPENAI_API_KEY?.trim()) {
+    return process.env.OPENAI_API_KEY.trim();
+  }
+  try {
+    const envFile = join(homedir(), ".qwen", ".env");
+    if (existsSync(envFile)) {
+      const lines = readFileSync(envFile, "utf8").split(/\r?\n/);
+      const map: Record<string, string> = {};
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq !== -1) {
+          map[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+        }
+      }
+      if (map[envKey]?.trim()) return map[envKey].trim();
+      if (provider.id === "glm" && map.OPENAI_API_KEY?.trim()) {
+        return map.OPENAI_API_KEY.trim();
+      }
+    }
+  } catch {}
+  return null;
+}
 
 // ─── 函数签名与实现 ───────────────────────────────────────────────────
 
@@ -44,7 +106,7 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
     return errorStream(`unknown cn-direct agent: ${opts.agent}`);
   }
 
-  const apiKey = process.env[provider.envKey];
+  const apiKey = resolveCnApiKey(provider);
   if (!apiKey) {
     return errorStream(
       `请设置环境变量 ${provider.envKey} 以使用 ${provider.label}。`,
@@ -77,14 +139,14 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
       // ① start 事件
       safeEnqueue({
         type: "start",
-        bin: provider.baseUrl,
+        bin: provider.endpoint,
         argv: [model],
         promptBytes: Buffer.byteLength(opts.prompt, "utf8"),
       });
 
       let response: Response;
       try {
-        response = await fetch(`${provider.baseUrl}/v1/chat/completions`, {
+        response = await fetch(provider.endpoint, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${apiKey}`,
@@ -158,7 +220,7 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
               if (delta?.content) {
                 safeEnqueue({ type: "delta", text: delta.content });
               }
-              // DeepSeek R1 风格的思维链
+              // DeepSeek R1 / GLM 思考链
               if (delta?.reasoning_content) {
                 safeEnqueue({
                   type: "meta",
@@ -166,7 +228,7 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
                   value: delta.reasoning_content,
                 });
               }
-              // 部分供应商在最后一个 chunk 中附带 usage
+              // 供应商在最后一个 chunk 中附带 usage
               if (chunk.usage) {
                 lastUsage = chunk.usage;
               }

@@ -27,13 +27,16 @@ describe("cn-direct", () => {
     vi.restoreAllMocks();
   });
 
-  it("exports 4 CN providers", () => {
+  it("exports 4 CN providers with correct endpoints", () => {
     expect(CN_PROVIDERS.map((p) => p.id)).toEqual([
       "glm",
       "deepseek",
       "qwen-direct",
       "moonshot",
     ]);
+    expect(CN_PROVIDERS.find((p) => p.id === "glm")?.endpoint).toBe(
+      "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    );
   });
 
   it("returns error when agent is unknown", async () => {
@@ -48,16 +51,16 @@ describe("cn-direct", () => {
   });
 
   it("returns error when API key is missing", async () => {
-    delete process.env.ZHIPU_API_KEY;
+    delete process.env.MOONSHOT_API_KEY;
     const stream = invokeCnDirect({
-      agent: "glm",
+      agent: "moonshot",
       prompt: "hello",
     });
     const events = await collectEvents(stream);
     expect(events).toEqual([
       {
         type: "error",
-        message: "请设置环境变量 ZHIPU_API_KEY 以使用 智谱 GLM。",
+        message: "请设置环境变量 MOONSHOT_API_KEY 以使用 Moonshot。",
       },
     ]);
   });
@@ -89,7 +92,7 @@ describe("cn-direct", () => {
     expect(events).toEqual([
       {
         type: "start",
-        bin: "https://open.bigmodel.cn/api/paas/v4",
+        bin: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
         argv: ["glm-5.3-flash"],
         promptBytes: Buffer.byteLength("test prompt", "utf8"),
       },
@@ -120,7 +123,7 @@ describe("cn-direct", () => {
     expect(events).toEqual([
       {
         type: "start",
-        bin: "https://api.deepseek.com",
+        bin: "https://api.deepseek.com/chat/completions",
         argv: ["deepseek-chat"],
         promptBytes: Buffer.byteLength("test", "utf8"),
       },

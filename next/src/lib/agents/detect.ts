@@ -5,7 +5,7 @@ import {
   readZcodePickerState,
   type ZcodeNotReadyReason,
 } from "./zcode-model-binding";
-import { CN_PROVIDERS } from "./cn-direct";
+import { CN_PROVIDERS, resolveCnApiKey } from "./cn-direct";
 
 /**
  * Per-agent invocation protocol. Determines what `invokeAgent` does with the
@@ -976,8 +976,7 @@ export function detectAgents(): DetectedAgent[] {
     // binary to scan for; the invoke layer calls the provider API directly.
     if (protocol === "cn-direct") {
       const provider = CN_PROVIDERS.find((p) => p.id === a.id);
-      const envKey = provider?.envKey;
-      const hasKey = envKey ? !!process.env[envKey]?.trim() : false;
+      const hasKey = provider ? !!resolveCnApiKey(provider) : false;
       return { ...base, available: hasKey };
     }
 

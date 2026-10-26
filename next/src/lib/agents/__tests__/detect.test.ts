@@ -688,4 +688,20 @@ describe("detectAgents", () => {
       ]),
     );
   });
+
+  it("detects CN Direct agents and checks availability via API key", () => {
+    vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
+    const agents = detectAgents();
+
+    const glm = findAgent(agents, "glm");
+    expect(glm.protocol).toBe("cn-direct");
+    expect(glm.models.length).toBeGreaterThan(0);
+
+    const deepseek = findAgent(agents, "deepseek");
+    expect(deepseek.protocol).toBe("cn-direct");
+    expect(deepseek.available).toBe(true);
+
+    const moonshot = findAgent(agents, "moonshot");
+    expect(moonshot.protocol).toBe("cn-direct");
+  });
 });
