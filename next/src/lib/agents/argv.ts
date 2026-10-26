@@ -429,6 +429,14 @@ function parseLineWithState(agent: string, line: string, state: ParseState): Age
     return [{ kind: "delta", text: trimmed.endsWith("\n") ? trimmed : trimmed + "\n" }];
   }
 
+  // Qwen Code 0.26 has no JSON output mode — headless stdout is the model's
+  // reply itself (markdown/HTML text). Treat every stdout line as content,
+  // same contract as the aider family above. (The JSON-field probes further
+  // down stay for forward compatibility if a structured mode ever ships.)
+  if (agent === "qwen") {
+    return [{ kind: "delta", text: trimmed.endsWith("\n") ? trimmed : trimmed + "\n" }];
+  }
+
   // ZCode (argv-attach), NDJSON event envelope, one JSON object per line:
   //   {"type":"model.streaming","payload":{"kind":"text_delta","delta":"…"},…}
   // plus a bare {"type":"result",…} terminator line. See parseZcodeLine for
