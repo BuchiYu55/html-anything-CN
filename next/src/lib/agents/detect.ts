@@ -665,6 +665,13 @@ export function defaultZcodeCjsPaths(): string[] {
     if (installDir) {
       out.push(win32.join(installDir, "resources", "glm", "zcode.cjs"));
     }
+    // Per-user default install (NSIS one-click / user-level setup) — the
+    // install-dir env var above is only set in terminals spawned by the
+    // ZCode desktop host, so a plain app launch would otherwise miss it.
+    const localAppData = env.LOCALAPPDATA?.trim();
+    if (localAppData) {
+      out.push(win32.join(localAppData, "Programs", "ZCode", "resources", "glm", "zcode.cjs"));
+    }
     out.push(
       win32.join("C:\\Program Files\\ZCode", "resources", "glm", "zcode.cjs"),
     );

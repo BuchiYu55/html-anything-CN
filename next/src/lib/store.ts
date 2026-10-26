@@ -305,7 +305,13 @@ export const useStore = create<State>()(
       welcomeAck: false,
       sidebarCollapsed: false,
       historyPaneOpen: false,
-      locale: "en",
+      // First-run locale: follow the browser for zh users (fork default —
+      // the shipped zh-CN dictionary is complete). Persisted locale wins via
+      // zustand persist rehydration, so an explicit switch is never lost.
+      locale:
+        typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("zh")
+          ? "zh-CN"
+          : "en",
       layoutMode: "split",
 
       newTask: (init) => {
