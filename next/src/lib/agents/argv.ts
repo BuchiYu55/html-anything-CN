@@ -15,7 +15,7 @@ export class UnsupportedAgentProtocolError extends Error {
   constructor(public readonly agent: string, public readonly protocol: string) {
     super(
       `${agent} uses the ${protocol} protocol, which is not yet wired up in this build. ` +
-        `Pick one of: claude / codex / cursor-agent / gemini / copilot / opencode / qwen / qoder / codewhale / deepseek-tui / aider.`,
+        `Pick one of: claude / codex / cursor-agent / gemini / agy / copilot / opencode / qwen / qoder / codewhale / deepseek-tui / aider.`,
     );
   }
 }
@@ -84,6 +84,18 @@ export function buildArgv(agent: string, _opts: AgentArgvOpts = {}): string[] {
         "stream-json",
         "--yolo",
         ...(model ? ["--model", model] : []),
+      ];
+    case "agy":
+      // Antigravity CLI: no `--yolo` alias (exit 2 "flags provided but not
+      // defined"), only the long form. Prompt arrives via stdin (protocol
+      // "stdin"). The picker's "default" id is not an agy model id — omit
+      // the flag and let agy's own default model resolve.
+      return [
+        "--output-format",
+        "stream-json",
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
+        ...(model && model !== "default" ? ["--model", model] : []),
       ];
     case "copilot":
       return [
@@ -419,6 +431,97 @@ function mapZcodeUsage(usage: unknown): Record<string, number> | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/**
+ * Antigravity CLI (`agy`, Google's gemini-cli successor) one-shot stdout
+ * (`--output-format stream-json`), one NDJSON event envelope per line:
+ *
+ *   {"event":"init","conversation_id":…,"init":{"model":…,"tools":[…],
+ *    "permission_mode":"always-proceed"}}
+ *   {"event":"step_update","step_update":{"step_index":…,"state":"ACTIVE"|"DONE",
+ *    "step_type":"user_input"|"agent_response"|…,"text_delta":"…"}}
+ *   {"event":"result","result":{"status":"SUCCESS","response":"…",
+ *    "duration_seconds":…,"usage":{"input_tokens":…,"output_tokens":…}}}
+ *
+ *  - `init` → model + conversation-id meta.
+ *  - `step_update` with step_type `agent_response` and a `text_delta` →
+ *    streamed delta (marks sawStreamEventText). Everything else about the
+ *    frame (user_input steps, tool steps, the DONE frame without a delta)
+ *    is noise and dropped.
+ *  - `result` → usage (agy already emits snake_case keys; forwarded as-is)
+ *    and duration meta; a non-SUCCESS status surfaces as an error part.
+ *    `response` repeats the streamed text, so it is emitted as a delta only
+ *    when no step_update delta was ever seen (same dedupe contract as the
+ *    gemini bare-`text` fallback).
+ *  - unknown events and non-JSON lines dropped (agy plugins can print
+ *    arbitrary stdout).
+ */
+function parseAgyLine(line: string, state: ParseState): AgentParse[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const obj = parsed as Record<string, unknown>;
+
+  if (obj.event === "init") {
+    const init = obj.init && typeof obj.init === "object" ? (obj.init as Record<string, unknown>) : null;
+    const out: AgentParse[] = [];
+    if (init && typeof init.model === "string" && init.model) {
+      out.push({ kind: "meta", key: "model", value: init.model });
+    }
+    if (typeof obj.conversation_id === "string" && obj.conversation_id) {
+      out.push({ kind: "meta", key: "session", value: obj.conversation_id });
+    }
+    return out;
+  }
+
+  if (obj.event === "step_update") {
+    const su =
+      obj.step_update && typeof obj.step_update === "object"
+        ? (obj.step_update as Record<string, unknown>)
+        : null;
+    if (
+      su &&
+      su.step_type === "agent_response" &&
+      typeof su.text_delta === "string" &&
+      su.text_delta.length > 0
+    ) {
+      state.sawStreamEventText = true;
+      return [{ kind: "delta", text: su.text_delta }];
+    }
+    return [];
+  }
+
+  if (obj.event === "result") {
+    const r = obj.result && typeof obj.result === "object" ? (obj.result as Record<string, unknown>) : null;
+    if (!r) return [];
+    const out: AgentParse[] = [];
+    const status = typeof r.status === "string" ? r.status : "";
+    if (status && status !== "SUCCESS") {
+      const response = typeof r.response === "string" ? r.response : "";
+      const hint = response.trim().slice(0, 200);
+      out.push({
+        kind: "error",
+        message: `agy turn failed (${status})${hint ? `: ${hint}` : ""}`,
+      });
+    }
+    if (r.usage && typeof r.usage === "object") {
+      out.push({ kind: "meta", key: "usage", value: r.usage });
+    }
+    if (typeof r.duration_seconds === "number") {
+      out.push({ kind: "meta", key: "duration_ms", value: Math.round(r.duration_seconds * 1000) });
+    }
+    if (!state.sawStreamEventText && typeof r.response === "string" && r.response.length > 0) {
+      out.push({ kind: "delta", text: r.response });
+    }
+    return out;
+  }
+
+  return [];
+}
+
 function parseLineWithState(agent: string, line: string, state: ParseState): AgentParse[] {
   const trimmed = line.trim();
   if (!trimmed) return [];
@@ -427,6 +530,14 @@ function parseLineWithState(agent: string, line: string, state: ParseState): Age
   // go to stderr, which is forwarded as `stderr` events, not parsed here).
   if (agent === "aider" || agent === "codewhale" || agent === "deepseek-tui") {
     return [{ kind: "delta", text: trimmed.endsWith("\n") ? trimmed : trimmed + "\n" }];
+  }
+
+  // Antigravity CLI (`agy`), NDJSON event envelope, one JSON object per
+  // line — see parseAgyLine for the full event surface. Handled before the
+  // shared JSON.parse so a non-JSON line returns [] rather than a `noise`
+  // part (the invoke layer forwards noise as `raw`, flooding the log).
+  if (agent === "agy") {
+    return parseAgyLine(trimmed, state);
   }
 
   // Qwen Code 0.26 has no JSON output mode — headless stdout is the model's

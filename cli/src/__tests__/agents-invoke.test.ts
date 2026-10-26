@@ -434,6 +434,32 @@ describe("invokeAgent", () => {
       expect(usageMeta).toBeDefined();
       expect(done).toHaveLength(1);
     });
+
+    it("agy: result on close → response fallback delta + usage/duration meta", async () => {
+      // No step_update deltas arrived, so the result frame's response is the
+      // only text source (the sawStreamEventText=false fallback path).
+      const json =
+        '{"event":"result","result":{"status":"SUCCESS","response":"<html>ok</html>","duration_seconds":8.27,"usage":{"input_tokens":8987,"output_tokens":1,"total_tokens":8988}}}';
+
+      const events = await driveInvoke(
+        { agent: "agy", prompt: "test", binOverride: BIN_OVERRIDE },
+        json,
+        0,
+      );
+
+      const deltas = events.filter((e) => e.type === "delta");
+      const metas = events.filter((e) => e.type === "meta");
+      const done = events.filter((e) => e.type === "done");
+
+      expect(deltas).toHaveLength(1);
+      expect(deltas[0]).toMatchObject({ type: "delta", text: "<html>ok</html>" });
+      const usage = metas.find((e) => e.type === "meta" && e.key === "usage");
+      expect(usage).toMatchObject({
+        value: { input_tokens: 8987, output_tokens: 1, total_tokens: 8988 },
+      });
+      expect(done).toHaveLength(1);
+      expect(done[0]).toMatchObject({ type: "done", code: 0 });
+    });
   });
 
   describe("exit code propagation", () => {

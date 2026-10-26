@@ -173,6 +173,30 @@ export const AGENTS: AgentDef[] = [
     ],
   },
   {
+    // Antigravity CLI — Google's gemini-cli successor (gemini-cli personal
+    // OAuth was sunset 2026-06-18; agy is the migration target). Reads the
+    // prompt from stdin in print mode (protocol "stdin", same as gemini);
+    // stdout is a stream-json of its OWN event schema (event:init /
+    // step_update / result — NOT gemini-cli's), so it carries a dedicated
+    // parser. No DEFAULT_MODEL entry: unlike the legacy slots, "default" is
+    // not an agy model id, and the membership's six concrete models give
+    // users a predictable preselect (same curated-list precedent as zcode).
+    id: "agy",
+    label: "Antigravity CLI (agy)",
+    bin: "agy",
+    envOverride: "AGY_BIN",
+    vendor: "Google",
+    protocol: "stdin",
+    fallbackModels: [
+      { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+      { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
+      { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+      { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+    ],
+  },
+  {
     id: "copilot",
     label: "GitHub Copilot CLI",
     bin: "copilot",

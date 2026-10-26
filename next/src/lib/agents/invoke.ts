@@ -665,11 +665,11 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         // exit-0/unknown-code close keeps the historical done-only shape).
         // The message quotes the stderr tail for diagnosability; the full
         // stderr has already streamed as `stderr` log events.
-        if (opts.agent === "zcode" && code != null && code !== 0) {
+        if ((opts.agent === "zcode" || opts.agent === "agy") && code != null && code !== 0) {
           const hint = stderrTail.trim();
           safeEnqueue({
             type: "error",
-            message: `ZCode exited with code ${code}.${hint ? ` stderr: ${hint.slice(-STDERR_HINT_MAX)}` : ""}`,
+            message: `${opts.agent === "agy" ? "Antigravity CLI" : "ZCode"} exited with code ${code}.${hint ? ` stderr: ${hint.slice(-STDERR_HINT_MAX)}` : ""}`,
           });
         }
         safeEnqueue({ type: "done", code });

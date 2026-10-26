@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseLine, makeParser, sanitizeAgentStderrLine } from '../argv';
+import { buildArgv, parseLine, makeParser, sanitizeAgentStderrLine } from '../argv';
 
 describe('parseLine codex lifecycle', () => {
   it('reports the thread and generation start', () => {
@@ -566,5 +566,98 @@ describe("parseLine zcode (argv-attach stream-json)", () => {
       { kind: "meta", key: "result", value: "success" },
       { kind: "meta", key: "session", value: "sess_87b8cfd7-66c0-43d1-8133-23a659bae7b2" },
     ]);
+  });
+});
+
+describe("buildArgv agy (Antigravity CLI)", () => {
+  it("uses the long-form permission flag + stream-json and passes a concrete model", () => {
+    expect(buildArgv("agy", { model: "gemini-3.8-flash-high" })).toEqual([
+      "--output-format",
+      "stream-json",
+      "--dangerously-skip-permissions",
+      "--disable-slash-commands",
+      "--model",
+      "gemini-3.8-flash-high",
+    ]);
+  });
+
+  it("omits --model for the picker's \"default\" id (not an agy model id)", () => {
+    expect(buildArgv("agy", { model: "default" })).toEqual([
+      "--output-format",
+      "stream-json",
+      "--dangerously-skip-permissions",
+      "--disable-slash-commands",
+    ]);
+    expect(buildArgv("agy", {})).toEqual([
+      "--output-format",
+      "stream-json",
+      "--dangerously-skip-permissions",
+      "--disable-slash-commands",
+    ]);
+  });
+});
+
+describe("parseLine agy (own event schema: init / step_update / result)", () => {
+  // Fixtures captured from a live `agy --output-format stream-json` run
+  // (2026-10-26, gemini-3.8-flash-low); the init tools array is trimmed to
+  // two entries — the parser only reads init.model.
+  const INIT_LINE =
+    '{"event":"init","conversation_id":"abea70d6-ca88-41b3-bcb5-0f7ab50e4c2a","init":{"model":"gemini-3.8-flash-low","tools":["read_url_content","write_to_file"],"permission_mode":"always-proceed"}}';
+  const USER_INPUT_DONE =
+    '{"event":"step_update","step_update":{"conversation_id":"abea70d6","step_index":0,"state":"DONE","step_type":"user_input"}}';
+  const DELTA_ACTIVE =
+    '{"event":"step_update","step_update":{"conversation_id":"abea70d6","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"<html>"}}';
+  const DELTA_DONE_NO_TEXT =
+    '{"event":"step_update","step_update":{"conversation_id":"abea70d6","step_index":1,"state":"DONE","step_type":"agent_response","text_delta":"","duration_seconds":2.2,"usage":{"input_tokens":8987,"output_tokens":1}}}';
+  const RESULT_SUCCESS =
+    '{"event":"result","result":{"conversation_id":"abea70d6","status":"SUCCESS","response":"<html>ok","duration_seconds":8.27,"num_turns":1,"usage":{"input_tokens":8987,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":8988}}}';
+
+  it("init → model + session meta", () => {
+    expect(parseLine("agy", INIT_LINE)).toEqual([
+      { kind: "meta", key: "model", value: "gemini-3.8-flash-low" },
+      { kind: "meta", key: "session", value: "abea70d6-ca88-41b3-bcb5-0f7ab50e4c2a" },
+    ]);
+  });
+
+  it("agent_response text_delta → streamed delta; user_input / DONE-without-text frames are noise", () => {
+    expect(parseLine("agy", USER_INPUT_DONE)).toEqual([]);
+    expect(parseLine("agy", DELTA_ACTIVE)).toEqual([{ kind: "delta", text: "<html>" }]);
+    expect(parseLine("agy", DELTA_DONE_NO_TEXT)).toEqual([]);
+  });
+
+  it("non-JSON and unknown-event lines are dropped, not noise parts", () => {
+    expect(parseLine("agy", "plain stdout junk from a plugin")).toEqual([]);
+    expect(parseLine("agy", '{"event":"something_new","x":1}')).toEqual([]);
+  });
+
+  it("result after deltas: usage + duration meta, response NOT re-emitted (dedupe)", () => {
+    const parse = makeParser("agy");
+    parse(INIT_LINE);
+    parse(DELTA_ACTIVE);
+    const out = parse(RESULT_SUCCESS);
+    expect(out).toContainEqual({
+      kind: "meta",
+      key: "usage",
+      value: { input_tokens: 8987, output_tokens: 1, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: 8988 },
+    });
+    expect(out).toContainEqual({ kind: "meta", key: "duration_ms", value: 8270 });
+    expect(out).not.toContainEqual(expect.objectContaining({ kind: "delta" }));
+  });
+
+  it("result with NO prior deltas: response becomes the delta fallback", () => {
+    const parse = makeParser("agy");
+    parse(INIT_LINE);
+    expect(parse(RESULT_SUCCESS)).toContainEqual({ kind: "delta", text: "<html>ok" });
+  });
+
+  it("result non-SUCCESS status → error part carrying the response hint", () => {
+    const out = parseLine(
+      "agy",
+      '{"event":"result","result":{"status":"ERROR","response":"quota exceeded for today"}}',
+    );
+    expect(out).toContainEqual({
+      kind: "error",
+      message: "agy turn failed (ERROR): quota exceeded for today",
+    });
   });
 });
