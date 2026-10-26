@@ -86,7 +86,10 @@ export async function parseFile(file: File): Promise<FileParseResult> {
         text: formatPdfText(file.name, totalPages, text),
       };
     } finally {
-      await pdf.destroy?.();
+      // unpdf's PDFDocumentProxy typings don't declare destroy (pdfjs does
+      // at runtime); the cast keeps the optional-call semantics type-safe
+      // across pdfjs/unpdf type resolutions.
+      await (pdf as { destroy?: () => Promise<void> }).destroy?.();
     }
   }
 
