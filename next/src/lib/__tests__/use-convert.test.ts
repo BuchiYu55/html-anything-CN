@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { createEventBatcher, useConvert } from '../use-convert';
+import { createEventBatcher, useConvert, zcodeTurnFailed } from '../use-convert';
 import { useStore } from '../store';
 
 // act() refuses to run unless React knows it is inside a test environment
@@ -405,5 +405,31 @@ describe('useConvert().run', () => {
     expect(task.status).toBe('done');
     expect(task.log.filter((l) => l.kind === 'meta')).toHaveLength(200);
     expect(renderCount).toBeLessThanOrEqual(10);
+
+// The zcode failure gate, extracted from use-convert.ts so the
+// consumer-layer contract (error event / non-zero exit → red error state,
+// zcode-only) is unit-testable without driving the full fetch/SSE loop.
+
+describe("zcodeTurnFailed (zcode gate)", () => {
+  it("zcode: an error event fails the turn (refused binding / spawn failure)", () => {
+    expect(zcodeTurnFailed("zcode", "error", { message: "ZCode: no model plan found…" })).toBe(true);
+  });
+
+  it("zcode: a non-zero exit fails the turn (e.g. gateway 400 → exit 1)", () => {
+    expect(zcodeTurnFailed("zcode", "done", { code: 1 })).toBe(true);
+  });
+
+  it("zcode: exit 0 / delta / meta / stderr events do NOT fail the turn", () => {
+    expect(zcodeTurnFailed("zcode", "done", { code: 0 })).toBe(false);
+    expect(zcodeTurnFailed("zcode", "done", {})).toBe(false); // code unknown
+    expect(zcodeTurnFailed("zcode", "delta", { text: "<html>" })).toBe(false);
+    expect(zcodeTurnFailed("zcode", "meta", { key: "model" })).toBe(false);
+    expect(zcodeTurnFailed("zcode", "stderr", { text: "warning" })).toBe(false);
+  });
+
+  it("other agents keep the historical behavior — no event fails their turns", () => {
+    expect(zcodeTurnFailed("claude", "error", { message: "boom" })).toBe(false);
+    expect(zcodeTurnFailed("claude", "done", { code: 1 })).toBe(false);
+    expect(zcodeTurnFailed("codex", "done", { code: 2 })).toBe(false);
   });
 });

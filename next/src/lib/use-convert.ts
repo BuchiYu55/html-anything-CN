@@ -145,7 +145,7 @@ export function useConvert() {
       // diff-edit mode: if the task was loaded from a sample (or the user has
       // already converted once) AND the content has actually changed, we ship
       // the previous (baseContent, baseHtml) so the API can ask the agent for
-      // minimal edits instead of a fresh regeneration. This preserves the
+      // minimal edits rather than a fresh regeneration. This preserves the
       // design system AND saves output tokens.
       const task = store.tasks.find((t) => t.id === taskId);
       const isEdit =
@@ -198,7 +198,7 @@ export function useConvert() {
             agentError ??= d.message;
           }
         }
-        handleEvent(taskId, event, data, startedAt);
+        handleEvent(taskId, event, data, startedAt, req.agent);
       });
 
       try {
@@ -217,6 +217,11 @@ export function useConvert() {
         const dec = new TextDecoder();
         let buf = "";
         let lastEvent = "";
+        // zcode gate: a refused binding / failed turn must end the task in
+        // red error state, not a fake-green "done". Other agents keep the
+        // historical behavior (their CLIs may exit non-zero after usable
+        // output; html-anything does not re-interpret them here).
+        let turnFailed = false;
 
         while (true) {
           const { value, done } = await reader.read();
@@ -307,7 +312,38 @@ export function useConvert() {
   return { run, cancel };
 }
 
-function handleEvent(taskId: string, event: string, data: unknown, startedAt: number) {
+/**
+ * zcode gate: does this SSE event mark the turn failed? An `error` event
+ * (refused binding / spawn failure / stream error) or a non-zero exit, gated
+ * on zcode only. Other agents keep the historical behavior (their CLIs may
+ * exit non-zero after usable output; the app does not re-interpret them
+ * here). Exported for unit tests.
+ */
+export function zcodeTurnFailed(
+  agent: string,
+  event: string,
+  data: Record<string, unknown>,
+): boolean {
+  if (agent !== "zcode") return false;
+  if (event === "error") return true;
+  if (event === "done") {
+    const code = data.code;
+    return code != null && code !== 0;
+  }
+  return false;
+}
+
+/**
+ * Fold one SSE event into the task's log/stats. Returns true when the event
+ * marks the turn failed (see {@link zcodeTurnFailed}).
+ */
+function handleEvent(
+  taskId: string,
+  event: string,
+  data: unknown,
+  startedAt: number,
+  agent: string,
+): boolean {
   const d = data as Record<string, unknown>;
   const store = useStore.getState();
   const elapsed = Date.now() - startedAt;
@@ -340,9 +376,9 @@ function handleEvent(taskId: string, event: string, data: unknown, startedAt: nu
       break;
     }
     case "html": {
-      // Agent decided to write the HTML to a file via the Write tool instead
-      // of streaming it. The parser rescued the file's content from the
-      // tool_use input — REPLACE the accumulated text (preamble + "已输出至 …"
+      // Agent decided to write the HTML to a file via the Write tool rather
+      // than streaming it. The parser rescued the file's content from the
+      // tool_use input; REPLACE the accumulated text (preamble + "已输出至 …"
       // confirmation) so the preview shows the real document.
       if (typeof d.text === "string") {
         store.setHtmlFor(taskId, d.text);
@@ -414,6 +450,7 @@ function handleEvent(taskId: string, event: string, data: unknown, startedAt: nu
       break;
     }
   }
+  return zcodeTurnFailed(agent, event, d);
 }
 
 function formatBytes(n: number) {
