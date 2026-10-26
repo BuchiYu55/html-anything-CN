@@ -962,12 +962,23 @@ describe("prepareZcodeModelBinding", () => {
     const noCatalog = prepareZcodeModelBinding({ ...base });
     expect(noCatalog).toMatchObject({ ok: false, code: "catalog-unreadable" });
     writeFileSync(f.catalogPath, JSON.stringify(catalogFixture()));
-    // 2. Provider config unreadable.
+    // 2. Provider config missing → degraded to an empty personal config
+    // (ZCode 0.17 GUI-only logins never write provider_config.json; account
+    // candidates from catalog + credentials still resolve — this fixture has
+    // neither, so the refusal just moves down the chain).
     const noPersonal = prepareZcodeModelBinding({
       ...base,
       personalConfigPath: join(dir, "no-personal.json"),
     });
-    expect(noPersonal).toMatchObject({ ok: false, code: "provider-config-unreadable" });
+    expect(noPersonal).not.toMatchObject({ code: "provider-config-unreadable" });
+    // 2b. Provider config present but malformed stays a hard refusal.
+    const malformedPath = join(dir, "malformed-personal.json");
+    writeFileSync(malformedPath, "{ not json");
+    const malformed = prepareZcodeModelBinding({
+      ...base,
+      personalConfigPath: malformedPath,
+    });
+    expect(malformed).toMatchObject({ ok: false, code: "provider-config-unreadable" });
     // 3. No usable provider at all (keyless F2 + no credentials).
     const keyless = pureApiKeyPersonalConfig();
     delete (
@@ -1009,7 +1020,9 @@ describe("prepareZcodeModelBinding", () => {
     });
     expect(badLevel).toMatchObject({ ok: false, code: "level-unsupported" });
     // Every refusal message carries an action and the ZCode: prefix.
-    for (const r of [noCatalog, noPersonal, none, unauthorized, notOnProvider, staleBare, badLevel]) {
+    // (noPersonal no longer refuses — a missing personal config degrades to
+    // empty and this keyless fixture falls through to `none`.)
+    for (const r of [noCatalog, none, unauthorized, notOnProvider, staleBare, badLevel]) {
       expect(r.ok).toBe(false);
       if (r.ok) continue;
       expect(r.message).toMatch(/[Rr]etry\.|[Rr]escan|[Pp]ick again|log in/);

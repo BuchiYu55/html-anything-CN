@@ -617,11 +617,14 @@ describe("resolveZcodeBin / resolveZcodeNodeBin on Linux", () => {
 
   it("defaultZcodeCjsPaths() Windows/macOS branches are unchanged", () => {
     stubPlatform("win32");
-    // A custom install dir yields both it and the hardcoded default; a value
-    // equal to the default would dedupe, so use a distinct dir here.
+    // A custom install dir yields it, the per-user default and the hardcoded
+    // default; a value equal to a later candidate would dedupe, so use a
+    // distinct dir here.
     vi.stubEnv("ZCODE_WINDOWS_APP_INSTALL_DIR", "D:\\ZCode");
+    vi.stubEnv("LOCALAPPDATA", "C:\\Users\\Administrator\\AppData\\Local");
     expect(defaultZcodeCjsPaths()).toEqual([
       "D:\\ZCode\\resources\\glm\\zcode.cjs",
+      "C:\\Users\\Administrator\\AppData\\Local\\Programs\\ZCode\\resources\\glm\\zcode.cjs",
       "C:\\Program Files\\ZCode\\resources\\glm\\zcode.cjs",
     ]);
     stubPlatform("darwin");

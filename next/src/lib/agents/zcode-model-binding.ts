@@ -80,6 +80,7 @@
  */
 
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -1060,21 +1061,33 @@ export function prepareZcodeModelBinding(opts: {
         "ZCode: the bundled provider catalog could not be read (neither next to the install nor in the runtime cache). Reinstall ZCode or point ZCODE_BIN at a full install, then retry.",
     };
   }
-  const personal = readJsonFile(opts.personalConfigPath ?? defaultZcodePersonalConfigPath());
-  if (!isRecord(personal) || !isRecord(personal.config)) {
+  const personalPath = opts.personalConfigPath ?? defaultZcodePersonalConfigPath();
+  const personal = readJsonFile(personalPath);
+  // Tolerate a missing personal config: ZCode 0.17 desktop keeps provider
+  // state in ~/.zcode/v2/config.json (GUI layout) and never writes the old
+  // provider_config.json, so a GUI-only login has none. Personal API-key
+  // providers then simply don't exist; account (coding-plan) candidates come
+  // from the bundled catalog + credentials and keep working — which is the
+  // only path a GUI-only user has. An unreadable-but-present file stays an
+  // error (it likely means a hand-edited broken config).
+  if (existsSync(personalPath) && (!isRecord(personal) || !isRecord(personal.config))) {
     return {
       ok: false,
       code: "provider-config-unreadable",
       message:
-        "ZCode: the provider config (~/.zcode/v2/provider_config.json) is missing or malformed. Open the ZCode GUI once so it can initialize the config, then retry.",
+        "ZCode: the provider config (~/.zcode/v2/provider_config.json) is malformed. Fix or remove the file, then retry.",
     };
   }
+  const personalConfig =
+    isRecord(personal) && isRecord(personal.config)
+      ? personal
+      : { config: { providerConfigRules: { providerRules: [] } } };
   const credentials = readJsonFile(opts.credentialsPath ?? defaultZcodeCredentialsPath());
   const credentialRecord = isRecord(credentials) ? credentials : {};
-  const tables = readRuleTables(catalog.data, personal);
+  const tables = readRuleTables(catalog.data, personalConfig);
   const accounts = accountCandidates(catalog.data, tables);
-  const personals = personalCandidates(catalog.data, personal, tables);
-  const registry = enumerateZcodeRegistry(catalog.data, personal, credentialRecord);
+  const personals = personalCandidates(catalog.data, personalConfig, tables);
+  const registry = enumerateZcodeRegistry(catalog.data, personalConfig, credentialRecord);
 
   let resolved: ResolvedSelection;
   if (opts.model === undefined || opts.model === "default") {
@@ -1138,7 +1151,9 @@ export function prepareZcodeModelBinding(opts: {
   }
 
   // Deep-clone via JSON round-trip: the source is freshly-parsed JSON anyway.
-  const clone = JSON.parse(JSON.stringify(personal)) as { config?: Record<string, unknown> };
+  // The degraded empty-personal shape clones fine — defaultModelSelection is
+  // written on top and the CLI resolves providers from the catalog side.
+  const clone = JSON.parse(JSON.stringify(personalConfig)) as { config?: Record<string, unknown> };
   clone.config = {
     ...clone.config,
     defaultModelSelection: resolved.selection.reasoningLevel
