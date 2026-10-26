@@ -306,11 +306,39 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
         return;
       }
       // `protocol: "argv"` adapters (deepseek-tui today) take the prompt as a
-      // trailing positional arg rather than reading from stdin.
-      if (promptViaArgv) argv = [...argv, opts.prompt];
-      // `protocol: "argv-message"` (openclaw today) wants the prompt under
-      // an explicit `--message <text>` flag.
-      if (promptViaMessageFlag) argv = [...argv, "--message", opts.prompt];
+      // trailing positional arg rather than reading from stdin. On Windows the
+      // spawn goes through `shell: true` (see below), where cmd.exe re-parses
+      // newlines and splits unquoted spaces — multi-line prompts get silently
+      // truncated (issue #145). These CLIs have no file-input flag, so fail
+      // loud instead of corrupting the prompt.
+      let promptFileDir: string | null = null;
+      if (promptViaArgv) {
+        if (process.platform === "win32" && opts.prompt.includes("\n")) {
+          safeEnqueue({
+            type: "error",
+            message:
+              `${opts.agent} 在 Windows 下暂不支持多行提示词（cmd.exe 会截断参数），` +
+              `已中止以避免内容损坏。请改用 stdin 型 CLI（claude / qwen / gemini 等）或单行提示词。`,
+          });
+          safeClose();
+          return;
+        }
+        argv = [...argv, opts.prompt];
+      }
+      // `protocol: "argv-message"` (openclaw today) wants the prompt under an
+      // explicit `--message <text>` flag — on Windows that flag dies at the
+      // cmd.exe shim (issue #145), so deliver via the CLI-native
+      // `--message-file <path>` with the prompt written to a temp file.
+      if (promptViaMessageFlag) {
+        if (process.platform === "win32") {
+          promptFileDir = await mkdtemp(path.join(tmpdir(), "html-anything-prompt-"));
+          const promptFile = path.join(promptFileDir, "prompt.txt");
+          await writeFile(promptFile, opts.prompt, "utf8");
+          argv = [...argv, "--message-file", promptFile];
+        } else {
+          argv = [...argv, "--message", opts.prompt];
+        }
+      }
       // `protocol: "argv-attach"` (zcode today): the full prompt (shared
       // directives + template + user content, 20-30KB+) is far past command-
       // line length limits, so it travels as a temp-file attachment. The
@@ -417,7 +445,9 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       safeEnqueue({
         type: "start",
         bin: bin!,
-        argv: fullArgv,
+        argv: fullArgv.map((a) =>
+          promptFileDir && a.startsWith(promptFileDir) ? "<prompt-file>" : a,
+        ),
         promptBytes: Buffer.byteLength(opts.prompt, "utf8"),
       });
       // The bound model as resolved by the per-turn binding (ZCode's stream emits
@@ -541,6 +571,12 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
 
       child.on("close", (code) => {
         clearSilenceTimer();
+        // Best-effort cleanup of the Windows prompt temp file. On Windows an
+        // open file cannot be deleted (EBUSY), so an orphaned agent still
+        // reading it is never truncated by this — rm simply fails and we move on.
+        if (promptFileDir) {
+          void rm(promptFileDir, { recursive: true, force: true }).catch(() => {});
+        }
         flushStderr();
         if (opts.agent === "openclaw") {
           // OpenClaw's `agent --local --json` emits one pretty-printed JSON
