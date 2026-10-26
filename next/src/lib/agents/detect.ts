@@ -5,6 +5,7 @@ import {
   readZcodePickerState,
   type ZcodeNotReadyReason,
 } from "./zcode-model-binding";
+import { CN_PROVIDERS } from "./cn-direct";
 
 /**
  * Per-agent invocation protocol. Determines what `invokeAgent` does with the
@@ -25,7 +26,7 @@ import {
  *                      clear error pointing them to a supported agent.
  *   - "pi-rpc"       : pi's custom JSON-RPC mode. Same status as "acp".
  */
-export type AgentProtocol = "stdin" | "argv" | "argv-message" | "argv-attach" | "acp" | "pi-rpc";
+export type AgentProtocol = "stdin" | "argv" | "argv-message" | "argv-attach" | "cn-direct" | "acp" | "pi-rpc";
 
 /**
  * A model picker entry. `id`/`label` are the two fields every agent's
@@ -297,6 +298,61 @@ export const AGENTS: AgentDef[] = [
       { id: "deepseek/deepseek-chat", label: "deepseek/deepseek-chat" },
     ],
   },
+  // ─── CN Direct agents ───────────────────────────────────────────────
+  // These agents call OpenAI-compatible chat completion APIs directly
+  // (no CLI intermediary). Available when the corresponding API key env
+  // var is set. See cn-direct.ts for the provider registry and stream
+  // implementation.
+  {
+    id: "glm",
+    label: "智谱 GLM (Direct)",
+    bin: "",
+    vendor: "智谱 AI",
+    protocol: "cn-direct",
+    fallbackModels: [
+      { id: "glm-5.3-flash", label: "GLM-5.3 Flash" },
+      { id: "glm-5.3", label: "GLM-5.3" },
+      { id: "glm-4-flash", label: "GLM-4 Flash" },
+      { id: "glm-4-plus", label: "GLM-4 Plus" },
+    ],
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek (Direct)",
+    bin: "",
+    vendor: "DeepSeek",
+    protocol: "cn-direct",
+    fallbackModels: [
+      { id: "deepseek-chat", label: "DeepSeek Chat (V3)" },
+      { id: "deepseek-reasoner", label: "DeepSeek Reasoner (R1)" },
+    ],
+  },
+  {
+    id: "qwen-direct",
+    label: "通义千问 (Direct)",
+    bin: "",
+    vendor: "阿里云",
+    protocol: "cn-direct",
+    fallbackModels: [
+      { id: "qwen-plus", label: "Qwen Plus" },
+      { id: "qwen-turbo", label: "Qwen Turbo" },
+      { id: "qwen-max", label: "Qwen Max" },
+    ],
+  },
+  {
+    id: "moonshot",
+    label: "Moonshot (Direct)",
+    bin: "",
+    vendor: "月之暗面",
+    protocol: "cn-direct",
+    fallbackModels: [
+      { id: "moonshot-v1-8k", label: "Moonshot V1 8K" },
+      { id: "moonshot-v1-32k", label: "Moonshot V1 32K" },
+      { id: "moonshot-v1-128k", label: "Moonshot V1 128K" },
+    ],
+  },
+
+
 
   // ACP family — detection-only. Models still surfaced for UI completeness.
   {
@@ -916,6 +972,16 @@ export function detectAgents(): DetectedAgent[] {
       }
       return { ...base, available: false };
     }
+    // CN Direct agents — available when the API key env var is set. No CLI
+    // binary to scan for; the invoke layer calls the provider API directly.
+    if (protocol === "cn-direct") {
+      const provider = CN_PROVIDERS.find((p) => p.id === a.id);
+      const envKey = provider?.envKey;
+      const hasKey = envKey ? !!process.env[envKey]?.trim() : false;
+      return { ...base, available: hasKey };
+    }
+
+
 
     const override = a.envOverride ? process.env[a.envOverride] : undefined;
     if (override && existsSync(override)) {

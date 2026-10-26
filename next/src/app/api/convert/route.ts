@@ -114,10 +114,36 @@ export async function POST(req: NextRequest) {
     signal: abortCtl.signal,
   });
 
+  // SSE keep-alive. Some agents (qwen + GLM especially) can sit for minutes
+  // with no stdout while the model thinks; with zero bytes on the wire, HTTP
+  // clients and proxies hit their idle/body timeouts (Node fetch/undici
+  // aborts the body after 300s of silence) and drop the connection — the
+  // turn then finishes server-side with nobody left to receive the deltas
+  // or the done event. A comment line every 15s keeps the connection
+  // demonstrably alive; SSE parsers ignore lines starting with ":" (and the
+  // in-app parser skips blocks without a data: line).
+  const HEARTBEAT_MS = 15_000;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const stopHeartbeat = () => {
+    if (heartbeat !== null) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+  };
+
   const sse = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
       let outClosed = false;
+      heartbeat = setInterval(() => {
+        if (outClosed) return stopHeartbeat();
+        try {
+          controller.enqueue(enc.encode(`: keepalive ${Date.now()}\n\n`));
+        } catch {
+          outClosed = true;
+          stopHeartbeat();
+        }
+      }, HEARTBEAT_MS);
       const send = (event: string, data: unknown) => {
         if (outClosed) return;
         try {
@@ -143,12 +169,14 @@ export async function POST(req: NextRequest) {
         });
       } finally {
         outClosed = true;
+        stopHeartbeat();
         try {
           controller.close();
         } catch {}
       }
     },
     cancel() {
+      stopHeartbeat();
       abortCtl.abort();
     },
   });

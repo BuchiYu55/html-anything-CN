@@ -163,6 +163,18 @@ export function buildArgv(agent: string, _opts: AgentArgvOpts = {}): string[] {
         "--mode",
         "yolo",
       ];
+    // CN Direct agents — no CLI argv needed; the invoke layer routes them
+    // to invokeCnDirect() before buildArgv is ever called. These cases
+    // exist as a safety net so an accidental call surfaces a clear error.
+    case "glm":
+    case "deepseek":
+    case "qwen-direct":
+    case "moonshot":
+      throw new Error(
+        `${agent} is a CN Direct agent — it calls the provider API directly and does not use CLI argv. ` +
+        `This is a bug: invokeAgent should have routed to invokeCnDirect() before reaching buildArgv().`,
+      );
+
     case "hermes":
     case "kimi":
     case "devin":

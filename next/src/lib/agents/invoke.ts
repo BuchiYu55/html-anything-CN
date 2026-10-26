@@ -1,10 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { join } from "node:path";
 import { resolveOnPath, resolveOpenclawAgentId, resolveZcodeBin, resolveZcodeNodeBin, ZCODE_CJS_SENTINEL, AGENTS } from "./detect";
+import { invokeCnDirect } from "./cn-direct";
 import { buildArgv, envFor, makeParser, sanitizeAgentStderrLine, UnsupportedAgentProtocolError } from "./argv";
 import {
   prepareZcodeModelBinding,
@@ -35,6 +36,43 @@ function sandboxCwd(): string {
     mkdirSync(dir, { recursive: true });
   } catch {}
   return dir;
+}
+
+/**
+ * Opt-in stream tracing (`HTML_ANYTHING_DEBUG_STREAM=1`): one stderr line per
+ * hop (stdout chunk in → event enqueued → close/abort) so a "server finished
+ * but the client saw nothing" report can be pinned to a layer in one run.
+ */
+const DEBUG_STREAM = process.env.HTML_ANYTHING_DEBUG_STREAM === "1";
+function dbg(agent: string, msg: string): void {
+  if (!DEBUG_STREAM) return;
+  try {
+    console.error(`[invoke:${agent}] ${new Date().toISOString()} ${msg}`);
+  } catch {}
+}
+
+/**
+ * Agents whose headless stdout is the model's reply itself (no JSON
+ * envelope, no line protocol). Their stdout is forwarded chunk-by-chunk as
+ * `delta` verbatim — no waiting for a newline, no per-line trim — so long
+ * generations stream to the client as they arrive and HTML indentation
+ * survives intact.
+ */
+const PLAIN_TEXT_STDOUT_AGENTS = new Set(["qwen"]);
+
+/**
+ * Kill the whole process tree on Windows. With `shell: true` the direct
+ * child is cmd.exe; `child.kill()` only kills that shell and leaves the real
+ * CLI (node qwen …) running — it keeps the stdout pipe open, burns tokens
+ * for the full generation, and holds the request open server-side long
+ * after the client is gone. `taskkill /T /F` takes the descendants too.
+ * No-op off Windows or without a pid (e.g. test doubles).
+ */
+function killTreeWindows(child: { pid?: number } | null): void {
+  if (process.platform !== "win32" || !child || typeof child.pid !== "number") return;
+  try {
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+  } catch {}
 }
 
 type BinResolution =
@@ -139,6 +177,17 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
   if (!def) {
     return errorStream(`unknown agent: ${opts.agent}`);
   }
+  // CN Direct agents — skip CLI spawn entirely, call the provider API
+  // directly from Node.js. See cn-direct.ts for the stream implementation.
+  if ((def.protocol ?? "stdin") === "cn-direct") {
+    return invokeCnDirect({
+      agent: opts.agent,
+      prompt: opts.prompt,
+      model: opts.model,
+      signal: opts.signal,
+    });
+  }
+
 
   // argv-attach agents (ZCode) spawn `node <zcode.cjs> -p …`, and
   // html-anything is an external process: on a clean Windows host
@@ -230,10 +279,17 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       let child: ChildProcessWithoutNullStreams | null = null;
 
       const safeEnqueue = (ev: InvokeEvent) => {
-        if (closed) return;
+        if (closed) {
+          dbg(opts.agent, `drop ${ev.type} (stream already closed)`);
+          return;
+        }
         try {
           controller.enqueue(ev);
-        } catch {
+          if (DEBUG_STREAM && ev.type !== "stderr") {
+            dbg(opts.agent, `enqueue ${ev.type}${ev.type === "delta" ? ` ${ev.text.length} chars` : ""}`);
+          }
+        } catch (err) {
+          dbg(opts.agent, `enqueue ${ev.type} threw: ${err instanceof Error ? err.message : String(err)}`);
           closed = true;
         }
       };
@@ -408,6 +464,9 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       );
       const fullArgv = leadingArgv.length ? [...leadingArgv, ...argv] : argv;
 
+      // Whether the child is a cmd.exe wrapper (Windows shell path). Read by
+      // the abort path to decide whether a tree kill is needed.
+      let spawnedViaShell = false;
       try {
         // On Windows, `spawn` cannot launch a `.cmd` / `.bat` shim (which is
         // what npm installs for most CLI agents) without going through the
@@ -433,6 +492,7 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
           /^([a-zA-Z]:[\\/]|[\\/])/.test(bin) &&
           /\.exe$/i.test(bin);
         const useShell = process.platform === "win32" && !binIsAbsoluteExe;
+        spawnedViaShell = useShell;
         child = spawn(
           useShell ? `"${bin}"` : bin,
           useShell && promptViaAttach ? fullArgv.map(quoteWindowsArg) : fullArgv,
@@ -524,9 +584,20 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       };
       // Rolling stderr tail feeding the non-zero-exit error message.
       let stderrTail = "";
+      const plainTextStdout = PLAIN_TEXT_STDOUT_AGENTS.has(opts.agent);
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
+        dbg(opts.agent, `stdout chunk ${chunk.length} chars${closed ? " (after close)" : ""}`);
         if (closed) return;
+        // Plain-text agents (qwen): every byte on stdout is reply content.
+        // Forward it as-is the moment it arrives — line-buffering would hold
+        // a newline-free stretch of output back until the next "\n" (or
+        // until exit), which is exactly the "long silence, then nothing"
+        // symptom on multi-minute generations.
+        if (plainTextStdout) {
+          if (chunk) safeEnqueue({ type: "delta", text: chunk });
+          return;
+        }
         stdoutBuf += chunk;
         // OpenClaw emits one big multi-line JSON document; accumulate and
         // parse it once on close rather than trying to parse each line.
@@ -561,7 +632,9 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk: string) => {
         stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CAP);
-        safeEnqueue({ type: "stderr", text: chunk });
+        // (Previously an unconditional enqueue sat here as well, so every
+        // non-codex stderr chunk reached the client twice and codex got its
+        // raw, unsanitized line on top of the sanitized one.)
         if (opts.agent !== 'codex') {
           safeEnqueue({ type: "stderr", text: chunk });
           return;
@@ -586,6 +659,7 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       });
 
       child.on("close", (code) => {
+        dbg(opts.agent, `child close code=${code} closed=${closed} stdoutBuf=${stdoutBuf.length}`);
         clearSilenceTimer();
         // Best-effort cleanup of the Windows prompt temp file. On Windows an
         // open file cannot be deleted (EBUSY), so an orphaned agent still
@@ -677,10 +751,12 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       });
 
       const onAbort = () => {
+        dbg(opts.agent, "abort signal (client disconnected or cancelled)");
         clearSilenceTimer();
         try {
           child?.kill("SIGTERM");
         } catch {}
+        if (spawnedViaShell) killTreeWindows(child);
         flushStderr();
         cleanupArgvAttach();
         safeClose();
