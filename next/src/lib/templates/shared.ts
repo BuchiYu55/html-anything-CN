@@ -17,13 +17,14 @@ export const SHARED_DESIGN_DIRECTIVES = `
 - **禁止使用 Write / Edit / MultiEdit / Bash / Create / 任何文件系统工具**。不要把 HTML 写到任何 \`.html\` 文件里。前端直接捕获你的 stdout 文本, 文件落盘由前端负责。
 - 直接把完整的 HTML 文档作为助手回复的正文流式输出。不要先说"我来生成"、"已输出至 …"之类的话。
 - 文档以 \`<!DOCTYPE html>\` 开头, 末尾以 \`</html>\` 结束。
-- 在 \`<head>\` 中通过 CDN 引入 Tailwind v3 Play (https://cdn.tailwindcss.com) 与所需的 Google Fonts。
+- 在 \`<head>\` 中通过 CDN 引入 Tailwind v3 Play (https://cdn.tailwindcss.com)。
+- **字体一律使用系统字体栈, 禁止引入 Google Fonts 或任何外部字体 CDN** (国内网络与离线打开会半屏/回退丑): 衬线 \`'Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif\`; 无衬线 \`'Noto Sans SC','Source Han Sans SC','PingFang SC','Microsoft YaHei',sans-serif\`。系统没有的字体名保留在栈里做渐进增强即可。
 - 不要引用任何外部图片 URL（除非你能保证 URL 长期有效；优先使用 CSS / SVG 内联绘制）。
-- 必要的脚本（图表、动画）通过 jsdelivr CDN 引入；保持单文件可双击打开即用。
+- 必要的脚本（图表、动画）通过 jsdelivr CDN 引入, 并提供无脚本时的静态降级; 保持单文件可双击打开即用。
 - 输出**纯 HTML**, 不要用 markdown 代码围栏包裹, 不要任何解释性文字。第一个字符必须是 \`<\`。
 
 【设计准则 — 世界级标准】
-- 排版: 中文优先 \`Noto Sans SC\` / \`Noto Serif SC\`, 英文 \`Inter\` / \`Manrope\` / \`SF Pro\` 风格。
+- 排版: 中文优先系统字体 (见硬性技术要求), 英文跟随后续回退 (\`system-ui\` / \`Segoe UI\` / \`-apple-system\`)。
 - 色彩: 使用 1 个主色 + 2 个中性色 + 至多 1 个强调色; 大胆留白; 不使用纯黑纯白 (#000/#fff), 改用 \`#0a0a0a\` / \`#fafafa\`。
 - 网格: 8 px 基线; 段落最大宽度 65 ch; 标题与正文有清晰的层级。
 - 微观细节: 圆角统一 (rounded-xl/2xl), 投影柔和 (shadow-sm/lg), 边框 1px \`#e5e7eb\` / \`#262626\`。

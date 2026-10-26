@@ -2,6 +2,8 @@
  * Pulls the actual HTML document out of an agent's possibly chatty response.
  * Agents sometimes wrap output in ```html ... ``` fences or prepend explanation.
  */
+import { localizeForPreview } from "./localize-html";
+
 export function extractHtml(streamed: string): string {
   if (!streamed) return "";
 
@@ -38,10 +40,11 @@ export function extractHtml(streamed: string): string {
     return streamed;
   }
 
-  // 5. Wrap whatever we got in a minimal scaffold so something renders
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"></script></head><body class="p-8 font-sans"><pre class="whitespace-pre-wrap">${escape(
+  // 5. Wrap whatever we got in a minimal scaffold so something renders.
+  // Scaffold keeps the vendored local Tailwind so it renders offline.
+  return localizeForPreview(`<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"></script></head><body class="p-8 font-sans"><pre class="whitespace-pre-wrap">${escape(
     streamed,
-  )}</pre></body></html>`;
+  )}</pre></body></html>`);
 }
 
 function escape(s: string): string {
@@ -56,7 +59,7 @@ function escape(s: string): string {
  * produce a closing </body></html> so the iframe can render incrementally.
  */
 export function previewHtml(streamed: string): string {
-  const html = extractHtml(streamed);
+  const html = localizeForPreview(extractHtml(streamed));
   if (!html) return "";
   if (/<\/html>/i.test(html)) return html;
   return html + "\n</body>\n</html>";

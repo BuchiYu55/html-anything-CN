@@ -12,6 +12,7 @@ import {
 } from "@/lib/export/image";
 import { downloadHtml } from "@/lib/export/download";
 import { extractHtml } from "@/lib/extract-html";
+import { inlineVendoredScripts } from "@/lib/localize-html";
 import { parseDeck } from "@/lib/deck";
 import {
   exportDeckPngZip,
@@ -95,7 +96,7 @@ export function ExportMenu({ iframeRef }: ExportMenuProps) {
     {
       title: t("export.section.download"),
       actions: [
-        { id: "download-html", label: t("export.action.downloadHtml"), emoji: "💾", fn: wrap(t("export.toast.htmlSaved"), async () => { downloadHtml(cleanHtml()); }) },
+        { id: "download-html", label: t("export.action.downloadHtml"), emoji: "💾", fn: wrap(t("export.toast.htmlSaved"), async () => { downloadHtml(await inlineVendoredScripts(cleanHtml())); }) },
         { id: "download-png",  label: t("export.action.downloadPng"),  emoji: "🖼️", fn: wrap(t("export.toast.imgSaved"), async () => {
           if (!iframeRef.current) throw new Error(t("export.error.previewNotReady")); await downloadIframeAsImage(iframeRef.current);
         }) },
