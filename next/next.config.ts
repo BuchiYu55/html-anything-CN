@@ -4,6 +4,10 @@ import { stripZcodeHostProviderEnv } from "./src/lib/agents/zcode-model-binding"
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // Standalone output for the Electron sidecar desktop build (issue #156
+  // community approach): a self-contained server bundle with a pruned
+  // node_modules, so the packaged app needs no Node.js on the user machine.
+  output: "standalone",
 };
 
 export default (phase: string): NextConfig => {
