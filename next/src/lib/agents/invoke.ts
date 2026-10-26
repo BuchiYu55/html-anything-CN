@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +24,17 @@ export type InvokeOpts = {
    */
   binOverride?: string;
 };
+
+/** Dedicated scratch dir used as the default agent cwd. Agents run tools
+ * (often auto-approved); they must never default to the server process cwd
+ * (repo/install location) — see the incident note in the fork changelog. */
+function sandboxCwd(): string {
+  const dir = join(tmpdir(), "html-anything-agent-cwd");
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {}
+  return dir;
+}
 
 type BinResolution =
   | { kind: "ok"; bin: string }
@@ -425,7 +436,11 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
           useShell ? `"${bin}"` : bin,
           useShell && promptViaAttach ? fullArgv.map(quoteWindowsArg) : fullArgv,
           {
-            cwd: opts.cwd ?? process.cwd(),
+            // Agents run with tool execution (often auto-approved). Default
+            // their working directory to a dedicated scratch dir, NOT the
+            // server process cwd — a runaway/curious agent must not be able
+            // to touch the app install or the repo it was launched from.
+            cwd: opts.cwd ?? sandboxCwd(),
             env,
             stdio: ["pipe", "pipe", "pipe"],
             shell: useShell,
@@ -705,7 +720,7 @@ async function mountZcodeAppImage(
   opts: { cwd?: string; signal?: AbortSignal },
 ): Promise<{ mountChild: ChildProcessWithoutNullStreams; mountPoint: string }> {
   const mountChild = spawn(appImage, ["--appimage-mount"], {
-    cwd: opts.cwd ?? process.cwd(),
+    cwd: opts.cwd ?? sandboxCwd(),
     // All-pipe stdio keeps the type ChildProcessWithoutNullStreams (matching
     // the CLI child). The mount child never reads stdin; an idle pipe
     // is harmless and gets torn down with the child on teardown.
