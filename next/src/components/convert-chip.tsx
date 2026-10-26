@@ -79,12 +79,12 @@ export function ConvertChip() {
         disabled={!isRunning && !canConvert}
         title={tip}
         aria-label={t("convertChip.label")}
-        className="pointer-events-auto group relative flex items-center gap-2 rounded-full px-4 py-2.5 text-[12.5px] font-medium shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+        className="pointer-events-auto group relative flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-medium shadow-xl transition-all hover:scale-[1.03] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
         style={{
           background: isRunning ? "var(--coral-hover)" : "var(--coral)",
           color: "#fff",
-          border: "1px solid rgba(255,255,255,0.18)",
-          boxShadow: "0 4px 18px rgba(201, 100, 66, 0.32)",
+                    boxShadow: "0 8px 24px rgba(201, 100, 66, 0.38), 0 2px 6px rgba(0,0,0,0.08)",
+          border: "1px solid rgba(255,255,255,0.25)",
         }}
       >
         {isRunning ? (

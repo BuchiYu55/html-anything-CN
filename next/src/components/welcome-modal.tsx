@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useStore, type AgentInfo } from "@/lib/store";
+import { CommunityQrModal } from "./community-modal";
 import { useT, type DictKey } from "@/lib/i18n";
 import { isStaleModelChoice, resolveAgentModel } from "@/lib/agent-models";
 
@@ -108,6 +109,7 @@ export function WelcomeModal({ onClose }: Props) {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showCommunityQr, setShowCommunityQr] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -253,7 +255,7 @@ export function WelcomeModal({ onClose }: Props) {
           style={{ borderTop: "1px solid var(--line-faint)" }}
         >
           <a
-            href="https://github.com/nexu-io/html-anything"
+            href={process.env.NEXT_PUBLIC_GITHUB_URL || "https://github.com/songyiketech"}
             target="_blank"
             rel="noreferrer noopener"
             className="rounded-full px-3 py-1 border transition-colors hover:text-[var(--ink)] hover:border-[var(--ink)]/30"
@@ -261,15 +263,14 @@ export function WelcomeModal({ onClose }: Props) {
           >
             ★ GitHub
           </a>
-          <a
-            href="https://discord.gg/keeVPMrueT"
-            target="_blank"
-            rel="noreferrer noopener"
+          <button
+            type="button"
+            onClick={() => setShowCommunityQr(true)}
             className="rounded-full px-3 py-1 border transition-colors hover:text-[var(--ink)] hover:border-[var(--ink)]/30"
             style={{ borderColor: "var(--line)" }}
           >
-            Discord
-          </a>
+            💬 读者交流群
+          </button>
           <a
             href="https://github.com/nexu-io/open-design"
             target="_blank"
@@ -281,6 +282,7 @@ export function WelcomeModal({ onClose }: Props) {
             open-design ↗
           </a>
         </div>
+        {showCommunityQr && <CommunityQrModal onClose={() => setShowCommunityQr(false)} />}
 
         {/* Footer */}
         <div

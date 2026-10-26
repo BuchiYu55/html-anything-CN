@@ -274,6 +274,7 @@ export interface Dict {
   // Community / upstream link entry points
   "community.starOnGitHub": string;
   "community.joinDiscord": string;
+  "community.joinCommunity": string;
   "community.upstreamHint": string;
   "community.builtBy": string;
 
@@ -646,6 +647,7 @@ const en: Dict = {
 
   "community.starOnGitHub": "Star on GitHub",
   "community.joinDiscord": "Join Discord",
+  "community.joinCommunity": "Join Community Group",
   "community.upstreamHint": "The upstream design system this is built on",
   "community.builtBy": "Built by",
 
@@ -1012,6 +1014,7 @@ const zhCN: Dict = {
 
   "community.starOnGitHub": "在 GitHub 上 Star",
   "community.joinDiscord": "加入 Discord",
+  "community.joinCommunity": "加入读者与实测交流群",
   "community.upstreamHint": "本项目所基于的上游设计系统",
   "community.builtBy": "基于",
 

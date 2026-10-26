@@ -233,12 +233,15 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "qwen",
-    label: "Qwen Coder",
+    label: "Qwen Coder (CLI)",
     bin: "qwen",
     envOverride: "QWEN_BIN",
     vendor: "Alibaba",
     fallbackModels: [
       DEFAULT_MODEL,
+      { id: "glm-5.3-flash", label: "GLM-5.3 Flash (~/.qwen/.env)" },
+      { id: "qwen-plus", label: "qwen-plus" },
+      { id: "qwen-max", label: "qwen-max" },
       { id: "qwen3-coder-plus", label: "qwen3-coder-plus" },
       { id: "qwen3-coder-flash", label: "qwen3-coder-flash" },
     ],
@@ -310,10 +313,10 @@ export const AGENTS: AgentDef[] = [
     vendor: "智谱 AI",
     protocol: "cn-direct",
     fallbackModels: [
-      { id: "glm-5.3-flash", label: "GLM-5.3 Flash" },
-      { id: "glm-5.3", label: "GLM-5.3" },
-      { id: "glm-4-flash", label: "GLM-4 Flash" },
+      { id: "glm-5.3-flash", label: "GLM-5.3 Flash (推荐)" },
+      { id: "glm-5.3", label: "GLM-5.3 (全能旗舰)" },
       { id: "glm-4-plus", label: "GLM-4 Plus" },
+      { id: "glm-zero-preview", label: "GLM-Zero Preview" },
     ],
   },
   {
@@ -323,8 +326,8 @@ export const AGENTS: AgentDef[] = [
     vendor: "DeepSeek",
     protocol: "cn-direct",
     fallbackModels: [
-      { id: "deepseek-chat", label: "DeepSeek Chat (V3)" },
-      { id: "deepseek-reasoner", label: "DeepSeek Reasoner (R1)" },
+      { id: "deepseek-chat", label: "DeepSeek-V3 (极速主力)" },
+      { id: "deepseek-reasoner", label: "DeepSeek-R1 (深度思考)" },
     ],
   },
   {
@@ -334,9 +337,10 @@ export const AGENTS: AgentDef[] = [
     vendor: "阿里云",
     protocol: "cn-direct",
     fallbackModels: [
-      { id: "qwen-plus", label: "Qwen Plus" },
-      { id: "qwen-turbo", label: "Qwen Turbo" },
-      { id: "qwen-max", label: "Qwen Max" },
+      { id: "qwen-plus", label: "Qwen Plus (均衡旗舰)" },
+      { id: "qwen-max", label: "Qwen Max (最强复杂)" },
+      { id: "qwen-turbo", label: "Qwen Turbo (超低延迟)" },
+      { id: "qwen-flash", label: "Qwen Flash" },
     ],
   },
   {
