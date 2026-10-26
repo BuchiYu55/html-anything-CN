@@ -6,3 +6,4 @@ packages:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+nodeLinker: hoisted

@@ -29,8 +29,8 @@
     ],
     "extraResources": [
       {
-        "from": "../next/.next/standalone",
-        "to": "server"
+        "from": "../next/.next/server-bundle.tar.gz",
+        "to": "server-bundle.tar.gz"
       }
     ],
     "win": {

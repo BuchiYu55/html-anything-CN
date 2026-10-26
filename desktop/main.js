@@ -7,10 +7,11 @@
  * server, wait for readiness, open the window.
  */
 const { app, BrowserWindow, shell } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const http = require("http");
 const net = require("net");
 const path = require("path");
+const fs = require("fs");
 
 let serverProc = null;
 let mainWindow = null;
@@ -26,11 +27,39 @@ function findFreePort() {
 }
 
 function serverRoot() {
-  // Packaged: extraResources copies <repo>/next/.next/standalone → resources/server,
-  // whose working dir (server.js + package.json) lives under server/next (pnpm
-  // workspace layout). Dev: run from the checkout.
-  if (app.isPackaged) return path.join(process.resourcesPath, "server", "next");
-  return path.join(__dirname, "..", "next", ".next", "standalone", "next");
+  // The standalone bundle ships as resources/server-bundle.tar.gz and is
+  // extracted on first run to %LOCALAPPDATA%\html-anything\server-<version>.
+  // Why not run straight from resources/: electron-builder's NSIS/portable
+  // packaging drops files inside extraResources node_modules trees (issue
+  // #156 community build hit the same), and the portable flavor runs from a
+  // %TEMP% extraction dir where spawning children trips security products.
+  // A persistent real directory solves both. Dev: run from the checkout.
+  if (!app.isPackaged) return path.join(__dirname, "..", "next", ".next", "standalone", "next");
+  // Bundle packs the whole standalone dir; the pnpm-workspace layout keeps
+  // server.js under next/ with a sibling root-level node_modules.
+  return path.join(app.getPath("userData"), "server", "next");
+}
+
+/** Extract the bundled server on first run. No-op when already present. */
+function ensureServerExtracted() {
+  const dest = path.join(app.getPath("userData"), "server");
+  if (fs.existsSync(path.join(dest, "next", "server.js"))) return;
+  const bundle = path.join(process.resourcesPath, "server-bundle.tar.gz");
+  if (!fs.existsSync(bundle)) throw new Error("server bundle missing from resources");
+  fs.mkdirSync(dest, { recursive: true });
+  // Windows 10 1803+ ships bsdtar at System32	ar.exe — call it by absolute
+  // path: a bare "tar" may resolve to GNU tar (Git Bash), which misparses
+  // "E:\..." as host:path and fails ("Cannot connect to E").
+  const systemTar = path.join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe");
+  execSync(`"${systemTar}" -xzf "${bundle}" -C "${dest}"`, {
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    timeout: 120000,
+  });
+  if (!fs.existsSync(path.join(dest, "next", "server.js"))) {
+    throw new Error("server bundle extracted but server.js missing");
+  }
+  console.log(`[server] extracted bundle to ${dest}`);
 }
 
 /**
@@ -110,6 +139,15 @@ function killServer() {
 
 app.whenReady().then(async () => {
   discoverZcodeInstallDir();
+  try {
+    ensureServerExtracted();
+  } catch (err) {
+    console.error(`[server] bundle extraction failed: ${err.message}`);
+    const { dialog } = require("electron");
+    dialog.showErrorBox("html-anything", `服务器组件初始化失败：${err.message}`);
+    app.quit();
+    return;
+  }
   const port = await findFreePort();
   startServer(port);
   await waitReady(port);
