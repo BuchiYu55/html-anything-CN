@@ -90,6 +90,7 @@ export interface Dict {
   "protocol.acp": string;
   "protocol.piRpc": string;
   "protocol.argvAttach": string;
+  "protocol.cnDirect": string;
 
   // Settings modal
   "settings.eyebrow": string;
@@ -456,6 +457,7 @@ const en: Dict = {
   "protocol.acp": "ACP JSON-RPC · not wired",
   "protocol.piRpc": "pi-rpc · not wired",
   "protocol.argvAttach": "argv-attach · stream-json",
+    "protocol.cnDirect": "Direct API · stream",
 
   "settings.eyebrow": "Settings",
   "settings.titlePart1": "Configure",
@@ -823,6 +825,7 @@ const zhCN: Dict = {
   "protocol.acp": "ACP JSON-RPC · 暂未接入",
   "protocol.piRpc": "pi-rpc · 暂未接入",
   "protocol.argvAttach": "argv-attach · stream-json",
+    "protocol.cnDirect": "Direct API · 原生直连",
 
   "settings.eyebrow": "设置",
   "settings.titlePart1": "配置",
