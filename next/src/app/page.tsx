@@ -8,7 +8,6 @@ import { TasksSidebar } from "@/components/tasks-sidebar";
 import { HistoryPane } from "@/components/history-pane";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { SettingsModal, type SectionId } from "@/components/settings-modal";
-import { ConvertChip } from "@/components/convert-chip";
 import { useStore, type AgentInfo } from "@/lib/store";
 
 export default function Home() {
@@ -102,7 +101,6 @@ export default function Home() {
               <PreviewPane iframeRef={iframeRef} />
             </section>
           )}
-          <ConvertChip />
         </div>
       </div>
       {welcomeOpen && <WelcomeModal onClose={() => setWelcomeOpen(false)} />}

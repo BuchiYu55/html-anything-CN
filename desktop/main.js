@@ -43,14 +43,24 @@ function serverRoot() {
 /** Extract the bundled server on first run. No-op when already present. */
 function ensureServerExtracted() {
   const dest = path.join(app.getPath("userData"), "server");
-  if (fs.existsSync(path.join(dest, "next", "server.js"))) return;
   const bundle = path.join(process.resourcesPath, "server-bundle.tar.gz");
   if (!fs.existsSync(bundle)) throw new Error("server bundle missing from resources");
+
+  const stampFile = path.join(dest, ".bundle-mtime");
+  let bundleMtime = "";
+  try {
+    bundleMtime = String(fs.statSync(bundle).mtimeMs);
+  } catch {}
+
+  if (fs.existsSync(path.join(dest, "next", "server.js")) && fs.existsSync(stampFile)) {
+    try {
+      const recorded = fs.readFileSync(stampFile, "utf8").trim();
+      if (recorded === bundleMtime) return;
+    } catch {}
+  }
+
   fs.mkdirSync(dest, { recursive: true });
-  // Windows 10 1803+ ships bsdtar at System32	ar.exe — call it by absolute
-  // path: a bare "tar" may resolve to GNU tar (Git Bash), which misparses
-  // "E:\..." as host:path and fails ("Cannot connect to E").
-  const systemTar = path.join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe");
+  const systemTar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
   execSync(`"${systemTar}" -xzf "${bundle}" -C "${dest}"`, {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -59,6 +69,9 @@ function ensureServerExtracted() {
   if (!fs.existsSync(path.join(dest, "next", "server.js"))) {
     throw new Error("server bundle extracted but server.js missing");
   }
+  try {
+    fs.writeFileSync(stampFile, bundleMtime, "utf8");
+  } catch {}
   console.log(`[server] extracted bundle to ${dest}`);
 }
 
