@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useStore, selectActiveTask } from "@/lib/store";
 import { useConvert } from "@/lib/use-convert";
-import { CommunityQrModal } from "./community-modal";
 import { useT } from "@/lib/i18n";
 import { resolveAgentModel } from "@/lib/agent-models";
 import { TemplatePicker } from "./template-picker";
@@ -76,7 +75,6 @@ export function Toolbar({
     >
       <div className="flex items-center gap-4">
         <Brand />
-        <CommunityLinks />
         <div className="hidden h-6 w-px sm:block" style={{ background: "var(--line)" }} />
         <button
           onClick={onOpenAgentPicker}
@@ -189,50 +187,6 @@ function HistoryToggle() {
         <polyline points="12 7 12 12 15 14" />
       </svg>
     </button>
-  );
-}
-
-function CommunityLinks() {
-  const t = useT();
-  const [showQr, setShowQr] = useState(false);
-  const linkCls =
-    "grid h-9 w-9 place-items-center rounded-full border text-[var(--ink-soft)] transition-all hover:border-[var(--ink)]/30 hover:text-[var(--ink)]";
-  const linkStyle = { background: "var(--surface)", borderColor: "var(--line)" };
-  const githubLabel = t("community.starOnGitHub");
-  const communityLabel = t("community.joinCommunity");
-  const githubUrl = process.env.NEXT_PUBLIC_GITHUB_URL || "https://github.com/songyiketech";
-
-  return (
-    <>
-      <div className="hidden md:flex items-center gap-1.5">
-        <a
-          href={githubUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className={linkCls}
-          style={linkStyle}
-          title={githubLabel}
-          aria-label={githubLabel}
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.79 8.21 11.39.6.11.82-.26.82-.58v-2.04c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.74.08-.73.08-.73 1.21.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5 1 .11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.34-5.47-5.95 0-1.31.47-2.39 1.24-3.23-.13-.3-.54-1.52.11-3.18 0 0 1-.32 3.3 1.23a11.45 11.45 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.11 3.18.77.84 1.24 1.92 1.24 3.23 0 4.62-2.81 5.64-5.49 5.94.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.82.58A12.01 12.01 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-          </svg>
-        </a>
-        <button
-          type="button"
-          onClick={() => setShowQr(true)}
-          className={linkCls}
-          style={linkStyle}
-          title={communityLabel}
-          aria-label={communityLabel}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="15" height="15">
-            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-          </svg>
-        </button>
-      </div>
-      {showQr && <CommunityQrModal onClose={() => setShowQr(false)} />}
-    </>
   );
 }
 
