@@ -167,6 +167,7 @@ function AgentSection() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [configuringAgent, setConfiguringAgent] = useState<AgentInfo | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -263,11 +264,28 @@ function AgentSection() {
       )}
 
       {selectedAgent && (
-        <CustomBinPath
-          agent={selectedAgent}
-          value={agentBinOverrides[selectedAgent.id] ?? ""}
-          onChange={(p) => setAgentBinOverride(selectedAgent.id, p)}
-        />
+        selectedAgent.protocol === "cn-direct" ? (
+          <CnApiKeyConfig agent={selectedAgent} onSaved={load} />
+        ) : (
+          <CustomBinPath
+            agent={selectedAgent}
+            value={agentBinOverrides[selectedAgent.id] ?? ""}
+            onChange={(p) => setAgentBinOverride(selectedAgent.id, p)}
+          />
+        )
+      )}
+
+      {configuringAgent && (
+        <div className="mt-4 border-2 border-[var(--coral)] rounded-2xl p-1 bg-[var(--surface)]">
+          <CnApiKeyConfig
+            agent={configuringAgent}
+            onSaved={() => {
+              setConfiguringAgent(null);
+              load();
+            }}
+            onClose={() => setConfiguringAgent(null)}
+          />
+        </div>
       )}
 
       {missing.length > 0 && (
@@ -277,7 +295,7 @@ function AgentSection() {
           </div>
           <div className="grid grid-cols-1 gap-2">
             {missing.map((a) => (
-              <MissingCard key={a.id} agent={a} />
+              <MissingCard key={a.id} agent={a} onConfigureKey={(ag) => setConfiguringAgent(ag)} />
             ))}
           </div>
         </>
@@ -589,7 +607,100 @@ function CustomBinPath({
   );
 }
 
-function MissingCard({ agent }: { agent: AgentInfo }) {
+function CnApiKeyConfig({
+  agent,
+  onSaved,
+  onClose,
+}: {
+  agent: AgentInfo;
+  onSaved: () => void;
+  onClose?: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: agent.id, apiKey: key.trim() }),
+      });
+      if (!res.ok) throw new Error("保存失败");
+      setMsg("✅ API Key 已保存生效");
+      setKey("");
+      setTimeout(() => {
+        onSaved();
+      }, 500);
+    } catch (e) {
+      setMsg("保存失败: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{ background: "var(--paper)", border: "1px solid var(--line-faint)" }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--coral)] font-bold">
+            API Key 配置 · 原生直连通道
+          </div>
+          <div className="text-[12.5px] text-[var(--ink-soft)] mt-0.5">
+            配置 <strong>{agent.label}</strong> 密钥（仅保存在本机系统配置目录中，绝不外发）
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {msg && <span className="text-[11px] text-[var(--coral)]">{msg}</span>}
+          {onClose && (
+            <button onClick={onClose} className="text-xs text-[var(--ink-mute)] hover:text-[var(--ink)]">
+              ✕ 取消
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center gap-2">
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="在此输入该模型的 API Key（留空保存可清除）"
+          className="min-w-0 flex-1 rounded-lg px-3 py-1.5 font-mono text-[12px] outline-none"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--line)",
+            color: "var(--ink)",
+          }}
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-medium transition-opacity disabled:opacity-50"
+          style={{ background: "var(--ink)", color: "var(--paper)" }}
+        >
+          {saving ? "保存中..." : "保存配置"}
+        </button>
+      </div>
+      <div className="mt-2 text-[10.5px] text-[var(--ink-mute)] leading-snug">
+        提示：已集成长代码防截断调优（max_tokens: 16384）与低延迟思考模式；配置后立即生效，无需配置环境变量。
+      </div>
+    </div>
+  );
+}
+
+function MissingCard({
+  agent,
+  onConfigureKey,
+}: {
+  agent: AgentInfo;
+  onConfigureKey?: (agent: AgentInfo) => void;
+}) {
   const t = useT();
   const gradient = VENDOR_GRADIENT[agent.vendor] ?? "from-[var(--ink-faint)] to-[var(--ink-mute)]";
   return (
@@ -606,9 +717,18 @@ function MissingCard({ agent }: { agent: AgentInfo }) {
         <div className="text-[13px] font-medium text-[var(--ink-soft)]">{agent.label}</div>
         <div className="text-[10.5px] text-[var(--ink-faint)]">{agent.vendor}</div>
       </div>
-      <span className="text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
-        {t("agent.notInstalled")}
-      </span>
+      {agent.protocol === "cn-direct" ? (
+        <button
+          onClick={() => onConfigureKey && onConfigureKey(agent)}
+          className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[var(--surface)] text-[var(--coral)] border border-[var(--coral)]/40 hover:bg-[var(--coral)] hover:text-white transition-all shadow-sm"
+        >
+          配置 Key
+        </button>
+      ) : (
+        <span className="text-[10px] uppercase tracking-wider text-[var(--ink-faint)]">
+          {t("agent.notInstalled")}
+        </span>
+      )}
     </div>
   );
 }

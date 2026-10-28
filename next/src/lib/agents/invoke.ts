@@ -25,6 +25,7 @@ export type InvokeOpts = {
    * whose CLI lives outside the heuristic toolchain dirs.
    */
   binOverride?: string;
+  apiKey?: string;
 };
 
 /** Dedicated scratch dir used as the default agent cwd. Agents run tools
@@ -185,6 +186,7 @@ export function invokeAgent(opts: InvokeOpts): ReadableStream<InvokeEvent> {
       prompt: opts.prompt,
       model: opts.model,
       signal: opts.signal,
+      apiKey: opts.apiKey,
     });
   }
 

@@ -60,7 +60,7 @@ describe("cn-direct", () => {
     expect(events).toEqual([
       {
         type: "error",
-        message: "请设置环境变量 MOONSHOT_API_KEY 以使用 Moonshot。",
+        message: "请在设置中配置 API Key，或设置环境变量 MOONSHOT_API_KEY 以使用 Moonshot。",
       },
     ]);
   });

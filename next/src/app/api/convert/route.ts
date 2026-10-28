@@ -19,6 +19,7 @@ type Body = {
    * scan doesn't cover (Scoop on Windows, custom installs, etc.).
    */
   binOverride?: string;
+  apiKey?: string;
   /** When the task already has a generated HTML, the client sends both the
    *  prior HTML and the prior content. The agent is then asked for a
    *  minimal-diff edit (preserve design, only change what the content diff
@@ -76,6 +77,7 @@ export async function POST(req: NextRequest) {
     model,
     cwd,
     binOverride,
+    apiKey,
     editFromHtml,
     editFromContent,
   } = body;
@@ -111,6 +113,7 @@ export async function POST(req: NextRequest) {
     model,
     cwd,
     binOverride,
+    apiKey,
     signal: abortCtl.signal,
   });
 

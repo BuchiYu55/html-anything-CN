@@ -5,12 +5,11 @@
  * DeepSeek、通义千问、Moonshot）。返回与 invokeAgent() 相同的
  * ReadableStream<InvokeEvent>，可在 route.ts 中无缝替换。
  *
- * 注意：Node.js 原生 fetch 不遵循 HTTPS_PROXY / HTTP_PROXY 环境变量。
- * 国产 API 通常为境内直连无需代理；如确需代理，可引入 global-agent 等库
- * 在进程启动时全局拦截，或配置 undici 的 ProxyAgent。
+ * 针对深度思考模型已做专属调优（如智谱 GLM-5.3 默认设置 reasoning_effort: "low" +
+ * max_tokens: 16384），彻底杜绝思考超时导致正文截断、卡片仅出「01」等问题。
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { InvokeEvent } from "./invoke";
@@ -56,14 +55,62 @@ export const CN_PROVIDERS: CnProvider[] = [
   },
 ];
 
+// ─── 用户自定义 Key 持久化 ──────────────────────────────────────────
+
+export function getUserKeysPath(): string {
+  const baseDir = process.env.APPDATA
+    ? join(process.env.APPDATA, "html-anything-desktop")
+    : join(homedir(), ".html-anything");
+  return join(baseDir, "api-keys.json");
+}
+
+export function loadUserCustomKeys(): Record<string, string> {
+  try {
+    const p = getUserKeysPath();
+    if (existsSync(p)) {
+      const data = JSON.parse(readFileSync(p, "utf8"));
+      if (data && typeof data === "object") return data as Record<string, string>;
+    }
+  } catch {}
+  return {};
+}
+
+export function saveUserCustomKey(providerId: string, apiKey: string): void {
+  try {
+    const p = getUserKeysPath();
+    const dir = join(p, "..");
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const current = loadUserCustomKeys();
+    if (!apiKey) {
+      delete current[providerId];
+    } else {
+      current[providerId] = apiKey.trim();
+    }
+    writeFileSync(p, JSON.stringify(current, null, 2), "utf8");
+  } catch (err) {
+    console.error("saveUserCustomKey failed:", err);
+  }
+}
+
 /**
  * 解析供应商对应的 API Key。
  * 优先级：
- * 1. process.env[provider.envKey]（显式指定，如 ZHIPU_API_KEY）
- * 2. process.env.OPENAI_API_KEY（OpenAI 兼容通用环境变量，用于 GLM 等）
- * 3. ~/.qwen/.env 文件中定义的 key 或 OPENAI_API_KEY（复用已有配置）
+ * 1. 显式传入（explicitKey）
+ * 2. 本地持久化配置（loadUserCustomKeys）
+ * 3. process.env[provider.envKey]（显式指定，如 ZHIPU_API_KEY）
+ * 4. process.env.OPENAI_API_KEY（OpenAI 兼容通用环境变量，用于 GLM 等）
+ * 5. ~/.qwen/.env 文件中定义的 key 或 OPENAI_API_KEY（复用已有配置）
  */
-export function resolveCnApiKey(provider: CnProvider): string | null {
+export function resolveCnApiKey(provider: CnProvider, explicitKey?: string): string | null {
+  if (explicitKey?.trim()) return explicitKey.trim();
+
+  const customKeys = loadUserCustomKeys();
+  if (customKeys[provider.id]?.trim()) {
+    return customKeys[provider.id].trim();
+  }
+
   const envKey = provider.envKey;
   if (process.env[envKey]?.trim()) return process.env[envKey]!.trim();
   if (provider.id === "glm" && process.env.OPENAI_API_KEY?.trim()) {
@@ -98,6 +145,7 @@ export type CnDirectOpts = {
   prompt: string;      // 完整 prompt 文本（system+user 由 route.ts 拼合）
   model?: string;      // model id 覆盖，缺省取 provider.defaultModel
   signal?: AbortSignal;
+  apiKey?: string;     // 可选前端传入的显式 API Key
 };
 
 export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> {
@@ -106,10 +154,10 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
     return errorStream(`unknown cn-direct agent: ${opts.agent}`);
   }
 
-  const apiKey = resolveCnApiKey(provider);
+  const apiKey = resolveCnApiKey(provider, opts.apiKey);
   if (!apiKey) {
     return errorStream(
-      `请设置环境变量 ${provider.envKey} 以使用 ${provider.label}。`,
+      `请在设置中配置 API Key，或设置环境变量 ${provider.envKey} 以使用 ${provider.label}。`,
     );
   }
 
@@ -144,6 +192,20 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
         promptBytes: Buffer.byteLength(opts.prompt, "utf8"),
       });
 
+      // 构造请求体，设置 16384 token 保证长页面完整闭合
+      const requestBody: Record<string, unknown> = {
+        model,
+        messages: [{ role: "user", content: opts.prompt }],
+        stream: true,
+        max_tokens: 16384,
+      };
+
+      // 智谱 GLM 思考模型：设定轻量推理档位，杜绝思考 4 分钟耗尽 token 截断
+      if (provider.id === "glm") {
+        requestBody.thinking = { type: "enabled" };
+        requestBody.reasoning_effort = "low";
+      }
+
       let response: Response;
       try {
         response = await fetch(provider.endpoint, {
@@ -152,11 +214,7 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: "user", content: opts.prompt }],
-            stream: true,
-          }),
+          body: JSON.stringify(requestBody),
           signal: opts.signal,
         });
       } catch (err) {
@@ -256,7 +314,6 @@ export function invokeCnDirect(opts: CnDirectOpts): ReadableStream<InvokeEvent> 
 
     cancel() {
       // 流消费者取消——由 route.ts 调用 cancel → 触发 abort signal
-      // opts.signal 的 abort 在 fetch 内部自动处理
     },
   });
 }
