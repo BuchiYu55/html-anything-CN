@@ -1,5 +1,8 @@
 # HTML Anything
 
+> **🔧 CN Fork（中文增强版）** — 国产大模型直连（智谱 / DeepSeek / 通义千问 / Kimi，HTTP SSE 直连、零 CLI 依赖，实测 GLM 生成 319s→22.9s）、离线字体与 Tailwind 本地化、界面收敛、**Windows 免配置桌面版**（[Releases](../../releases) 下载，国内镜像 [GitCode](https://gitcode.com/Songyike123/html-anything-lazypack)）。修坑清单与实测数据见 **[FORK_NOTES.zh.md](FORK_NOTES.zh.md)**。基于 [nexu-io/html-anything](https://github.com/nexu-io/html-anything)（Apache-2.0），致谢上游。
+
+
 <p align="center"><sub>From the team behind <a href="https://github.com/nexu-io/open-design"><b>Open Design</b></a> — <b>40k★ · 200+ contributors</b>, production-grade and iterating faster. html-anything is the focused agent-era HTML editor; if it clicks for you, <a href="https://github.com/nexu-io/open-design">Open Design</a> is where the same team ships at scale.</sub></p>
 
 <p align="center"><b>Live page:</b> <a href="https://open-design.ai/html-anything/"><b>open-design.ai/html-anything/</b></a> — overview, surface modes, and showcase before you clone.</p>
