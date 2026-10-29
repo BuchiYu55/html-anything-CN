@@ -171,9 +171,25 @@ app.whenReady().then(async () => {
     backgroundColor: "#faf8f4",
   });
   await mainWindow.loadURL(`http://127.0.0.1:${port}`);
-  // External links (docs, GitHub) open in the system browser, never in-app.
+  // External links (docs, GitHub) open in the system browser.
+  // Internal popups for print/PDF (e.g. window.open("", "_blank") or about:blank)
+  // must be allowed in-app so Chromium's print dialog can open, NEVER sent to OS shell!
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (!url || url === "about:blank" || url.startsWith("about:")) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+        },
+      };
+    }
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 });
